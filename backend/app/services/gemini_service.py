@@ -75,7 +75,7 @@ Respond in the following JSON format exactly:
     client = _get_client()
     response = await asyncio.to_thread(
         client.models.generate_content,
-        model="gemini-2.5-flash",
+        model="gemini-2.0-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             temperature=0.1,
@@ -132,7 +132,7 @@ Return between 8 and 25 metrics, ordered by importance. Focus on metrics that ar
     client = _get_client()
     response = await asyncio.to_thread(
         client.models.generate_content,
-        model="gemini-2.5-flash",
+        model="gemini-2.0-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             temperature=0.1,
@@ -180,7 +180,7 @@ Respond in the following JSON format exactly:
     client = _get_client()
     response = await asyncio.to_thread(
         client.models.generate_content,
-        model="gemini-2.5-flash",
+        model="gemini-2.0-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             temperature=0.1,

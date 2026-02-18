@@ -11,8 +11,8 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-# Gemini 2.5 Flash — 1M token context, generous rate limits
-MODEL = "gemini-2.5-flash"
+# Gemini 2.0 Flash — 1M token context, higher rate limits
+MODEL = "gemini-2.0-flash"
 MAX_RETRIES = 5
 RETRY_BASE_DELAY = 10  # seconds
 
