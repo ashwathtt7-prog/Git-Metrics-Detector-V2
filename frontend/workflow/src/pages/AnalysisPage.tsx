@@ -34,8 +34,8 @@ export default function AnalysisPage() {
         } else if (jobData.status !== 'failed') {
           timeoutId = setTimeout(poll, 2000);
         }
-      } catch (err: any) {
-        if (active) setError(err.message || 'Failed to fetch job status');
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to fetch job status');
       }
     };
 

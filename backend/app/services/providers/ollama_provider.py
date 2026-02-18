@@ -27,11 +27,17 @@ class OllamaProvider(LLMProvider):
         if json_mode:
             payload["format"] = "json"
 
-        async with httpx.AsyncClient(timeout=300) as client:
-            resp = await client.post(
-                f"{self.base_url}/api/generate",
-                json=payload,
+        try:
+            async with httpx.AsyncClient(timeout=300) as client:
+                resp = await client.post(
+                    f"{self.base_url}/api/generate",
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return data["response"]
+        except httpx.ConnectError:
+            raise ConnectionError(
+                f"Cannot connect to Ollama at {self.base_url}. "
+                f"Make sure Ollama is running (ollama serve) and model '{self.model}' is pulled (ollama pull {self.model})."
             )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["response"]

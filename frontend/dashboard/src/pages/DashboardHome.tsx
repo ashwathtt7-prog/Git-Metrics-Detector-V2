@@ -8,14 +8,16 @@ const SUPERSET_URL = 'http://localhost:8088';
 export default function DashboardHome() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'workspaces' | 'superset'>('workspaces');
 
   const fetchWorkspaces = async () => {
     try {
+      setError(null);
       const data = await listWorkspaces();
       setWorkspaces(data);
-    } catch {
-      // ignore
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load workspaces');
     } finally {
       setLoading(false);
     }
@@ -28,8 +30,8 @@ export default function DashboardHome() {
     try {
       await deleteWorkspace(id);
       setWorkspaces(workspaces.filter((w) => w.id !== id));
-    } catch {
-      // ignore
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to delete workspace');
     }
   };
 
@@ -72,6 +74,8 @@ export default function DashboardHome() {
       {view === 'workspaces' ? (
         loading ? (
           <div className="loading">Loading workspaces...</div>
+        ) : error ? (
+          <div className="error-message">{error}</div>
         ) : (
           <WorkspaceList workspaces={workspaces} onDelete={handleDelete} />
         )

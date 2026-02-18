@@ -11,11 +11,14 @@ export default function WorkspacePage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      navigate('/');
+      return;
+    }
     getWorkspace(workspaceId)
       .then(setWorkspace)
       .catch(() => setError('Workspace not found'));
-  }, [workspaceId]);
+  }, [workspaceId, navigate]);
 
   if (error) {
     return (

@@ -33,7 +33,7 @@ export default function AnalysisProgress({ job }: Props) {
 
       {(isFetching || isAnalyzing || isComplete) && job.total_files > 0 && (
         <div className="progress-bar-container">
-          <div className="progress-bar" style={{ width: `${isFetching ? progress : 100}%` }} />
+          <div className="progress-bar" style={{ width: `${isComplete ? 100 : progress}%` }} />
           <span className="progress-text">
             {isFetching
               ? `${job.analyzed_files} / ${job.total_files} files fetched`
