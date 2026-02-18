@@ -20,9 +20,12 @@ export default function MetricColumn({ metric }: Props) {
   const [newNotes, setNewNotes] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getMetricEntries(metric.id).then(setEntries).catch(() => {});
+    getMetricEntries(metric.id).then(setEntries).catch((e) => {
+      setError(e instanceof Error ? e.message : 'Failed to load entries');
+    });
   }, [metric.id]);
 
   const handleAdd = async () => {
@@ -34,8 +37,8 @@ export default function MetricColumn({ metric }: Props) {
       setNewValue('');
       setNewNotes('');
       setShowAdd(false);
-    } catch {
-      // ignore
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to add entry');
     } finally {
       setLoading(false);
     }
@@ -65,8 +68,10 @@ export default function MetricColumn({ metric }: Props) {
         )}
       </div>
 
+      {error && <div className="error-message" style={{ color: '#dc2626', fontSize: '0.85rem', margin: '0.5rem 0' }}>{error}</div>}
+
       <div className="column-entries">
-        {entries.length === 0 && !showAdd && (
+        {entries.length === 0 && !showAdd && !error && (
           <p className="no-entries">No data yet</p>
         )}
         {entries.map((e) => (

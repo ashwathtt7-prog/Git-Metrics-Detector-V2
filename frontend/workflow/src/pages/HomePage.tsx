@@ -14,8 +14,8 @@ export default function HomePage() {
     try {
       const job = await startAnalysis(repoUrl);
       navigate(`/analysis/${job.id}`);
-    } catch (err: any) {
-      setError(err.message || 'Failed to start analysis');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start analysis');
     } finally {
       setLoading(false);
     }
@@ -43,7 +43,7 @@ export default function HomePage() {
           <div className="step">
             <div className="step-number">2</div>
             <h3>AI Analysis</h3>
-            <p>Gemini AI analyzes every file to understand the project</p>
+            <p>AI analyzes every file to understand the project</p>
           </div>
           <div className="step">
             <div className="step-number">3</div>
