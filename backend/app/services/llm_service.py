@@ -2,23 +2,11 @@ from __future__ import annotations
 
 import json
 import re
-import asyncio
 import logging
 from typing import List, Dict
-from google import genai
-from google.genai import types
-from ..config import settings
+from .providers import get_provider
 
 logger = logging.getLogger(__name__)
-
-# Gemini 2.0 Flash — 1M token context, higher rate limits
-MODEL = "gemini-2.0-flash"
-MAX_RETRIES = 5
-RETRY_BASE_DELAY = 10  # seconds
-
-
-def _get_client():
-    return genai.Client(api_key=settings.gemini_api_key)
 
 
 def _format_files_for_prompt(files: list[dict]) -> str:
@@ -55,37 +43,9 @@ def _parse_json_response(raw: str) -> dict:
 
 
 async def _call_llm(prompt: str) -> str:
-    """Call Gemini with retry logic for rate limits."""
-    client = _get_client()
-
-    est_tokens = int(len(prompt) / 3.5)
-    logger.info(f"[LLM] Calling {MODEL} with ~{est_tokens} estimated input tokens")
-
-    for attempt in range(MAX_RETRIES):
-        try:
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    response_mime_type="application/json",
-                ),
-            )
-            logger.info(f"[LLM] Success on attempt {attempt + 1}")
-            return response.text
-        except Exception as e:
-            error_str = str(e)
-            logger.warning(f"[LLM] Error (attempt {attempt + 1}/{MAX_RETRIES}): {type(e).__name__}: {error_str[:200]}")
-
-            if "429" in error_str or "rate" in error_str.lower() or "quota" in error_str.lower() or "resource" in error_str.lower():
-                delay = RETRY_BASE_DELAY * (2 ** attempt)
-                logger.info(f"[LLM] Rate limited, retrying in {delay}s")
-                await asyncio.sleep(delay)
-            else:
-                raise
-
-    raise RuntimeError("Max retries exceeded for LLM call")
+    """Call the configured LLM provider with retry logic."""
+    provider = get_provider()
+    return await provider.generate_with_retry(prompt, json_mode=True)
 
 
 async def analyze_project_overview(file_tree: list[str], key_files: list[dict]) -> dict:
@@ -202,3 +162,49 @@ Respond in the following JSON format exactly:
     raw = await _call_llm(prompt)
     result = _parse_json_response(raw)
     return result.get("metrics", [])
+
+
+async def suggest_dashboard_charts(project_summary: dict, metrics: list[dict]) -> list[dict]:
+    """Pass 4: Ask LLM to suggest Superset chart types for the discovered metrics."""
+    summary_str = json.dumps(project_summary, indent=2)
+    metrics_str = json.dumps(metrics, indent=2)
+
+    prompt = f"""You are a data visualization expert. Given a software project and its discovered metrics, suggest the best Apache Superset chart types for a dashboard.
+
+PROJECT CONTEXT:
+{summary_str}
+
+DISCOVERED METRICS:
+{metrics_str}
+
+For this project's dashboard, suggest 3-6 charts that would give the best overview. For each chart, specify:
+- chart_type: one of "pie", "bar", "table", "big_number", "big_number_total", "line", "area"
+- title: a descriptive chart title
+- description: what this chart shows
+- metrics_used: which metric categories or specific metric names this chart covers
+- groupby: what to group by (e.g., "category", "data_type", "name")
+- metric_expression: what to aggregate (e.g., "COUNT(*)", "COUNT(id)")
+
+Consider:
+- A pie chart for category distribution
+- A table showing all metrics with details
+- Big number cards for key counts
+- Bar charts comparing metrics across categories
+
+Respond in JSON format exactly:
+{{
+  "charts": [
+    {{
+      "chart_type": "string",
+      "title": "string",
+      "description": "string",
+      "metrics_used": ["string"],
+      "groupby": ["string"],
+      "metric_expression": "string"
+    }}
+  ]
+}}"""
+
+    raw = await _call_llm(prompt)
+    result = _parse_json_response(raw)
+    return result.get("charts", [])

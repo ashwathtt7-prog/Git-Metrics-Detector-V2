@@ -33,7 +33,7 @@ async def create_job(session: AsyncSession, repo_url: str, github_token: Optiona
 
 
 async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
-    """Background task: fetch repo, analyze with Gemini AI, create workspace."""
+    """Background task: fetch repo, analyze with LLM, create workspace."""
     async with async_session() as session:
         try:
             job = await session.get(AnalysisJob, job_id)
@@ -109,14 +109,26 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                 metrics_data=metrics,
             )
 
-            # --- Step 5: Create Superset dashboard ---
+            # --- Step 5: LLM suggests dashboard charts ---
+            chart_suggestions = None
             try:
-                await superset_service.create_superset_dashboard(workspace_id, project_name)
+                chart_suggestions = await llm_service.suggest_dashboard_charts(
+                    project_summary, metrics
+                )
+            except Exception as e:
+                import logging
+                logging.warning(f"Chart suggestion failed, using defaults: {e}")
+
+            # --- Step 6: Create Superset dashboard ---
+            try:
+                await superset_service.create_superset_dashboard(
+                    workspace_id, project_name, chart_suggestions
+                )
             except Exception as e:
                 import logging
                 logging.warning(f"Failed to create Superset dashboard: {e}")
 
-            # --- Step 6: Mark complete ---
+            # --- Step 7: Mark complete ---
             # Re-fetch job since workspace_service committed
             job = await session.get(AnalysisJob, job_id)
             job.workspace_id = workspace_id
