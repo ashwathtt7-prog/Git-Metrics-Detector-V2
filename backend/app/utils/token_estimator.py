@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 CHARS_PER_TOKEN = 3.5
-# Gemini 2.5 Flash has ~1M token context window
+# Conservative batch limit (~800k tokens) for large-context models
 MAX_TOKENS_PER_BATCH = 800_000
 MAX_CHARS_PER_BATCH = int(MAX_TOKENS_PER_BATCH * CHARS_PER_TOKEN)
 

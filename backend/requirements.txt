@@ -2,7 +2,12 @@ fastapi
 uvicorn[standard]
 sqlalchemy[asyncio]
 aiosqlite
-google-genai
 httpx
 python-dotenv
 pydantic-settings
+
+# LLM providers (install only what you need)
+google-genai     # for LLM_PROVIDER=gemini
+openai           # for LLM_PROVIDER=openai
+anthropic        # for LLM_PROVIDER=anthropic
+# Ollama uses httpx (already included) — no extra package needed
