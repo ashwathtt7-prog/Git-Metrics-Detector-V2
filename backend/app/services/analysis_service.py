@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 
 import traceback
 from typing import Optional
@@ -82,9 +83,12 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
             key_files = [f for f in files if get_file_priority(f["path"]) == 0]
             if not key_files:
                 key_files = files[:5]
+            
+            # Cap Pass 1 to avoid exceeding TPM on small models/tiers
+            key_files = key_files[:10]
 
             # Pass 1: Project overview
-            job.progress_message = "Pass 1: Understanding project structure..."
+            job.progress_message = "Pass 1: AI is understanding project structure and core business logic..."
             await session.commit()
             project_summary = await llm_service.analyze_project_overview(
                 file_paths, key_files
@@ -104,8 +108,12 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                     await session.commit()
                     batch_metrics = await llm_service.discover_metrics(project_summary, batch)
                     batch_results.append(batch_metrics)
+                    
+                    # Add a small delay between batches to avoid RPM/TPM exhaustion
+                    if i < len(batches) - 1:
+                        await asyncio.sleep(2)
                 # Pass 3: Consolidate
-                job.progress_message = "Pass 3: Consolidating metrics..."
+                job.progress_message = "Pass 3: Consolidating metrics and calculating ROI indicators..."
                 await session.commit()
                 metrics = await llm_service.consolidate_metrics(project_summary, batch_results)
 
@@ -127,7 +135,50 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                 repo_url=repo_url,
                 description=description,
                 metrics_data=metrics,
+                dashboard_layout=None, # Deprecated
             )
+
+            # --- Pass 4: Generate Dashboard Code ---
+            job.progress_message = "Pass 4: Architecting dynamic data visualizations and building the dashboard code in real-time..."
+            await session.commit()
+            
+            try:
+                dashboard_code = await llm_service.generate_dashboard_code(project_summary, metrics, workspace_id)
+                
+                # Path to frontend/dashboard/src/dashboards/Workspace_{id}.tsx
+                # We assume the directory exists (we created it)
+                # D:\git-metrics-detector\v1\Git-metrics-detector\frontend\dashboard\src\dashboards
+                # But we need absolute path logic relative to project root or use current file location
+                import os
+                
+                # Go up from: backend/app/services/analysis_service.py -> backend/app/services -> backend/app -> backend -> root
+                # Then down to frontend/dashboard/src/dashboards
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
+                dash_dir = os.path.join(project_root, "frontend", "dashboard", "src", "dashboards")
+                os.makedirs(dash_dir, exist_ok=True)
+                
+                file_path = os.path.join(dash_dir, f"Workspace_{workspace_id}.tsx")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(dashboard_code)
+                    
+                # Store the filename in the workspace record (re-using dashboard_config field or adding a new one)
+                # For now let's just use the existence of the file or update dashboard_config to point to it
+                # Actually, updating dashboard_config to "custom_code" is a good flag
+                ws = await session.get(AnalysisJob, job_id)
+                if ws: # Reload workspace ? No, ws is job.
+                    # Update workspace record
+                    from ..models import Workspace
+                    w = await session.get(Workspace, workspace_id)
+                    if w:
+                        w.dashboard_config = "custom_code"
+                        session.add(w)
+                        await session.commit()
+
+            except Exception as e:
+                print(f"Failed to generate dashboard code: {e}")
+                traceback.print_exc()
+
 
             # --- Step 5: Mark complete ---
             # Re-fetch job since workspace_service committed

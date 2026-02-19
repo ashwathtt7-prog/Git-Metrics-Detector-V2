@@ -60,6 +60,7 @@ class WorkspaceDetailResponse(BaseModel):
     description: Optional[str] = None
     created_at: str
     updated_at: str
+    dashboard_config: Optional[str] = None
     metrics: List[MetricResponse]
 
 

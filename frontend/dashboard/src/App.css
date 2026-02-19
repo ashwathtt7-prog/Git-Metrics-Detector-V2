@@ -580,3 +580,47 @@ body {
   }
 }
 
+/* Dynamic Dashboard */
+.dynamic-dashboard .chart-card {
+  margin-bottom: 2rem;
+  flex: 1 1 400px;
+}
+
+.kpi-grid-mini {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.kpi-mini {
+  background: #0f172a;
+  padding: 0.75rem;
+  border-radius: 6px;
+  text-align: center;
+  border: 1px solid #334155;
+}
+
+.kpi-mini .label {
+  display: block;
+  font-size: 0.8em;
+  color: #94a3b8;
+  margin-bottom: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kpi-mini .value {
+  font-size: 1.25em;
+  font-weight: 600;
+  color: #60a5fa;
+}
+
+.description {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  margin-top: -0.5rem;
+  margin-bottom: 1rem;
+}
+

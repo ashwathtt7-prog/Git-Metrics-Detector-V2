@@ -20,7 +20,7 @@ export default function CategoryPieChart({ data }: Props) {
           dataKey="count"
           nameKey="category"
           paddingAngle={2}
-          label={({ category, count }) => `${category}: ${count}`}
+          label={({ name, value }) => `${name}: ${value}`}
         >
           {data.map((entry) => (
             <Cell

@@ -45,7 +45,7 @@ export default function AnalysisProgress({ job }: Props) {
         </div>
       )}
 
-      {isAnalyzing && job.progress_message && (
+      {!isComplete && !isFailed && job.progress_message && (
         <div className="llm-progress">
           <span className="llm-spinner" />
           <span className="llm-message">{job.progress_message}</span>

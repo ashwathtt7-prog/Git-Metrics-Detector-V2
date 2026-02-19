@@ -27,6 +27,7 @@ export interface WorkspaceDetail {
   description?: string;
   created_at: string;
   updated_at: string;
+  dashboard_config?: string;
   metrics: Metric[];
 }
 

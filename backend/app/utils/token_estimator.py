@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-CHARS_PER_TOKEN = 3.5
-DEFAULT_MAX_TOKENS_PER_BATCH = 100_000
+CHARS_PER_TOKEN = 3.0
+DEFAULT_MAX_TOKENS_PER_BATCH = 10_000
 
 
 def estimate_tokens(text: str) -> int:

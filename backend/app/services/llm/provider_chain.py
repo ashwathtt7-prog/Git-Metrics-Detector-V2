@@ -44,7 +44,7 @@ class LLMProviderChain:
 
             for attempt in range(MAX_RETRIES_PER_PROVIDER):
                 try:
-                    est_tokens = int(len(prompt) / 3.5)
+                    est_tokens = int(len(prompt) / 3.0)
                     logger.info(
                         f"[LLM] Trying {cfg.name} "
                         f"(attempt {attempt + 1}/{MAX_RETRIES_PER_PROVIDER}, "
@@ -66,7 +66,8 @@ class LLMProviderChain:
                         f"[LLM] {cfg.name} error "
                         f"(attempt {attempt + 1}): {type(e).__name__}: {str(e)[:200]}"
                     )
-                    errors.append(f"{cfg.name}: {e}")
+                    error_msg = str(e) or type(e).__name__
+                    errors.append(f"{cfg.name}: {error_msg}")
 
                     if is_rate_limit and attempt < MAX_RETRIES_PER_PROVIDER - 1:
                         delay = min(RATE_LIMIT_RETRY_DELAY * (2 ** attempt), 60)

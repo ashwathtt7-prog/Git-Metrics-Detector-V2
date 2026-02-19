@@ -129,13 +129,14 @@ For each metric, provide:
 Respond in the following JSON format exactly:
 {{
   "metrics": [
-    {{
-      "name": "string",
-      "description": "string",
-      "category": "business|engagement|content|performance|growth",
-      "data_type": "number|percentage|boolean|string",
-      "suggested_source": "string describing where to measure this"
-    }}
+      {{
+        "name": "string",
+        "description": "string",
+        "category": "business|engagement|content|performance|growth",
+        "data_type": "number|percentage|boolean|string",
+        "suggested_source": "string describing where to measure this",
+        "estimated_value": "string or number (e.g., '150', '25%', 'Active', 'High') - based on the code analysis (e.g., count routes for API count, count components for component count)"
+      }}
   ]
 }}
 
@@ -174,7 +175,8 @@ Respond in the following JSON format exactly:
       "description": "string",
       "category": "business|engagement|content|performance|growth",
       "data_type": "number|percentage|boolean|string",
-      "suggested_source": "string describing where to measure this"
+      "suggested_source": "string describing where to measure this",
+      "estimated_value": "string or number"
     }}
   ]
 }}"""
@@ -182,3 +184,63 @@ Respond in the following JSON format exactly:
     raw = await _call_llm(prompt)
     result = _parse_json_response(raw)
     return result.get("metrics", [])
+
+
+async def generate_dashboard_code(project_summary: dict, metrics: list[dict], workspace_id: str) -> str:
+    """Pass 4: Generate a React component for the dashboard."""
+    summary_str = json.dumps(project_summary, indent=2)
+    metrics_str = json.dumps(metrics, indent=2)
+    
+    # We strip the ID dashes to make a valid component name if needed, but standardizing as WorkspaceDashboard_{id_clean} is safer.
+    safe_id = workspace_id.replace("-", "")
+
+    prompt = f"""You are an expert React developer specializing in data visualization with Recharts and Tailwind CSS.
+    
+    Your task is to generate a COMPLETE, self-contained React functional component that serves as a dashboard for a specific software project.
+    
+    PROJECT CONTEXT:
+    {summary_str}
+    
+    DETECTED METRICS (with estimated values):
+    {metrics_str}
+    
+    REQUIREMENTS:
+    1. **Component Name**: The component MUST be named `WorkspaceDashboard` and exported as `default`.
+    2. **Props**: The component will receive a single prop `metrics` which is an array of objects: `{{ metric: string; value: number; display_value: string; category: string }}`.
+       - You MUST use this `metrics` prop to populate your charts. 
+       - Do NOT hardcode data. Filter the `metrics` array by `metric` name to find the data you need for each chart.
+    3. **Libraries**:
+       - Use `recharts` for all charts (BarChart, PieChart, LineChart, AreaChart).
+       - Use Tailwind CSS classes for styling (the project has a dark theme background #0f172a / slate-900).
+       - Create beautiful, modern cards with `bg-slate-800 border-slate-700`.
+       - Text should be `text-slate-200` or `text-slate-400`.
+    4. **Layout**:
+       - Create a masonry-like or grid layout to display the metrics logically.
+       - Group related metrics (e.g., "Performance", "Growth", "Content").
+       - At the top, show Key Performance Indicators (KPIs) as big cards.
+    5. **Creativity**:
+       - Choose the best visualization for each metric (e.g., Pie for distribution, Bar for comparison).
+       - If a metric implies a trend or progress, and you only have a single value, maybe use a Progress bar or a radial bar if possible, or just a nice card.
+    
+    IMPORTS AVAILABLE:
+    - `import React, { useMemo } from 'react';`
+    - `import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';`
+    - `import { Users, Code, Activity, Server, GitBranch, AlertCircle, CheckCircle } from 'lucide-react';` (You can assume lucide-react is installed).
+    
+    IMPORTANT: Return ONLY the raw code string. Do not wrap in markdown blocks. Do not explain your code. Just the React code.
+    
+    """
+
+    raw = await _call_llm(prompt)
+    
+    # Clean up markdown code blocks if present
+    code = raw.strip()
+    if code.startswith("```"):
+        lines = code.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines[-1].startswith("```"):
+            lines = lines[:-1]
+        code = "\n".join(lines)
+        
+    return code

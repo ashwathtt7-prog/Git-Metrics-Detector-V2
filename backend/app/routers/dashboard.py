@@ -1,7 +1,7 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, desc
 from datetime import datetime, timezone
 from uuid import uuid4
 from ..database import get_session
@@ -60,6 +60,7 @@ async def get_workspace(workspace_id: str, session: AsyncSession = Depends(get_s
         id=ws.id, name=ws.name, repo_url=ws.repo_url,
         description=ws.description, created_at=ws.created_at,
         updated_at=ws.updated_at, metrics=metrics,
+        dashboard_config=ws.dashboard_config,
     )
 
 
@@ -231,20 +232,49 @@ async def get_workspace_analytics(
         for row in dtype_result.all()
     ]
 
-    metric_entries = await session.execute(
-        select(Metric.name, Metric.category, func.count(MetricEntry.id))
-        .outerjoin(MetricEntry, Metric.id == MetricEntry.metric_id)
-        .where(Metric.workspace_id == workspace_id)
-        .group_by(Metric.id)
-        .order_by(Metric.display_order)
+    # Get all metrics for workspace
+    metrics_result = await session.execute(
+        select(Metric).where(Metric.workspace_id == workspace_id).order_by(Metric.display_order)
     )
-    metric_entry_counts = [
-        {"metric": row[0], "category": row[1] or "uncategorized", "entries": row[2]}
-        for row in metric_entries.all()
-    ]
+    metrics = metrics_result.scalars().all()
+
+    metric_values = []
+    
+    import re
+    def extract_number(s):
+        if s is None: return 0
+        # Try to find the first number (integer or decimal)
+        match = re.search(r"([-+]?\d*\.?\d+)", str(s))
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                return 0
+        return 0
+
+    for metric in metrics:
+        # Get latest entry
+        latest_entry_result = await session.execute(
+            select(MetricEntry)
+            .where(MetricEntry.metric_id == metric.id)
+            .order_by(MetricEntry.recorded_at.desc())
+            .limit(1)
+        )
+        latest_entry = latest_entry_result.scalar_one_or_none()
+        
+        value = 0
+        if latest_entry:
+            value = extract_number(latest_entry.value)
+        
+        metric_values.append({
+            "metric": metric.name,
+            "category": metric.category or "uncategorized",
+            "value": value,
+            "display_value": latest_entry.value if latest_entry else "N/A"
+        })
 
     return {
         "category_distribution": category_distribution,
         "datatype_distribution": datatype_distribution,
-        "metric_entry_counts": metric_entry_counts,
+        "metric_values": metric_values,
     }

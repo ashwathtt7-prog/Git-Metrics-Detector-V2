@@ -31,6 +31,7 @@ class Workspace(Base):
     description = Column(Text)
     created_at = Column(Text, nullable=False)
     updated_at = Column(Text, nullable=False)
+    dashboard_config = Column(Text)  # JSON string of layout configuration
 
     analysis_job = relationship("AnalysisJob", back_populates="workspace", uselist=False)
     metrics = relationship("Metric", back_populates="workspace", cascade="all, delete-orphan")
