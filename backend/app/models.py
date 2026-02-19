@@ -18,6 +18,8 @@ class AnalysisJob(Base):
     completed_at = Column(Text)
     workspace_id = Column(Text, ForeignKey("workspaces.id"))
     progress_message = Column(Text)
+    current_stage = Column(Integer, default=1)
+    logs = Column(Text)  # JSON list of log strings
 
     workspace = relationship("Workspace", back_populates="analysis_job")
 

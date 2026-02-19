@@ -33,6 +33,19 @@ async def create_job(session: AsyncSession, repo_url: str, github_token: Optiona
     return job
 
 
+import json
+
+def add_log(job: AnalysisJob, message: str):
+    """Add a timestamped log entry to the job."""
+    now = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    log_entry = f"[{now}] {message}"
+    if not job.logs:
+        job.logs = json.dumps([log_entry])
+    else:
+        logs = json.loads(job.logs)
+        logs.append(log_entry)
+        job.logs = json.dumps(logs)
+
 async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
     """Background task: fetch repo, analyze with Gemini AI, create workspace."""
     async with async_session() as session:
@@ -41,14 +54,26 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
             if not job:
                 return
 
-            # --- Step 1: Fetch repo tree ---
+            # --- Stage 1: Validation ---
+            job.current_stage = 1
             job.status = "fetching"
-            job.progress_message = "Scanning repository structure..."
+            job.progress_message = "Stage 1: Validating repository and scanning structure..."
+            add_log(job, "Initializing git connection...")
+            add_log(job, f"Target repository: {repo_url}")
             await session.commit()
 
             owner, repo = github_service.parse_repo_url(repo_url)
             file_paths = await github_service.fetch_repo_tree(owner, repo, github_token)
             job.total_files = len(file_paths)
+            add_log(job, f"Found {len(file_paths)} total files in repository tree.")
+            add_log(job, "Stage 1 complete.")
+            await session.commit()
+
+            # --- Stage 2: Fetching Data ---
+            job.current_stage = 2
+            job.progress_message = "Stage 2: Fetching relevant file contents..."
+            add_log(job, "Identifying branch architecture...")
+            add_log(job, "Streaming file contents to analysis buffer...")
             await session.commit()
 
             # --- Step 2: Fetch file contents ---
@@ -71,12 +96,20 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
             if not files:
                 job.status = "failed"
                 job.error_message = "No readable files found in repository"
+                add_log(job, "CRITICAL: No readable files found. Aborting.")
                 await session.commit()
                 return
 
-            # --- Step 3: LLM Analysis ---
+            add_log(job, f"Fetch complete. {len(files)} files buffered.")
+            add_log(job, "Stage 2 complete.")
+            await session.commit()
+
+            # --- Stage 3: Processing ---
+            job.current_stage = 3
             job.status = "analyzing"
-            job.progress_message = "Starting AI analysis..."
+            job.progress_message = "Stage 3: Running AI-powered metrics discovery..."
+            add_log(job, "Starting LLM Thought Process...")
+            add_log(job, f"Using LLM: {llm_service.__name__ if hasattr(llm_service, '__name__') else 'Selected Provider'}")
             await session.commit()
 
             # Separate key files for project overview
@@ -88,11 +121,13 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
             key_files = key_files[:10]
 
             # Pass 1: Project overview
-            job.progress_message = "Pass 1: AI is understanding project structure and core business logic..."
+            add_log(job, "Pass 1: Understanding project intent and technical stack...")
             await session.commit()
             project_summary = await llm_service.analyze_project_overview(
                 file_paths, key_files
             )
+            add_log(job, f"Project identified as: {project_summary.get('project_name', 'Unknown')}")
+            add_log(job, f"Tech stack detected: {', '.join(project_summary.get('tech_stack', []))}")
 
             # Pass 2: Metrics discovery (with batching if needed)
             batches = create_batches(files, max_tokens=llm_service.get_batch_token_limit())
@@ -113,15 +148,26 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                     if i < len(batches) - 1:
                         await asyncio.sleep(2)
                 # Pass 3: Consolidate
-                job.progress_message = "Pass 3: Consolidating metrics and calculating ROI indicators..."
+                add_log(job, "Pass 3: Consolidating unique metrics and cleaning overlap...")
                 await session.commit()
                 metrics = await llm_service.consolidate_metrics(project_summary, batch_results)
 
             if not metrics:
                 job.status = "failed"
                 job.error_message = "LLM did not return any metrics"
+                add_log(job, "ERROR: LLM failed to extract meaningful metrics.")
                 await session.commit()
                 return
+            
+            add_log(job, f"Metrics discovered: {len(metrics)} items.")
+            add_log(job, "Stage 3 complete.")
+            await session.commit()
+
+            # --- Stage 4: Reporting ---
+            job.current_stage = 4
+            job.progress_message = "Stage 4: Generating custom visualization and workspace..."
+            add_log(job, "Initializing workspace creation...")
+            await session.commit()
 
             # --- Step 4: Create workspace ---
             project_name = project_summary.get("project_name", f"{owner}/{repo}")
@@ -139,7 +185,7 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
             )
 
             # --- Pass 4: Generate Dashboard Code ---
-            job.progress_message = "Pass 4: Architecting dynamic data visualizations and building the dashboard code in real-time..."
+            add_log(job, "Designing project-specific visualization components...")
             await session.commit()
             
             try:
@@ -186,6 +232,7 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
             job.workspace_id = workspace_id
             job.status = "completed"
             job.completed_at = datetime.now(timezone.utc).isoformat()
+            add_log(job, "Analysis complete. Dashboard is ready.")
             await session.commit()
 
         except Exception as e:
