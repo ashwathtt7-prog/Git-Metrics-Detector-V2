@@ -35,7 +35,7 @@ def _headers(token: Optional[str]) -> dict:
 
 async def fetch_repo_tree(owner: str, repo: str, token: Optional[str] = None) -> list:
     """Fetch the full file tree of a repo using the Git Trees API."""
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         # Get the default branch SHA
         resp = await client.get(
             f"{GITHUB_API}/repos/{owner}/{repo}",
@@ -103,7 +103,7 @@ async def fetch_files_batch(
     semaphore = asyncio.Semaphore(SEMAPHORE_LIMIT)
     results = []
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         tasks = [
             fetch_file_content(client, owner, repo, path, token, semaphore)
             for path in paths

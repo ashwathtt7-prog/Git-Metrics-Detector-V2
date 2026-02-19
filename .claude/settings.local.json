@@ -12,7 +12,11 @@
       "Bash(python:*)",
       "Bash(npx tsc:*)",
       "Bash(npm run dev)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(git -C \"D:\\\\git-metrics-detector\" remote -v)",
+      "Bash(del:*)",
+      "Bash(npx --yes degit:*)",
+      "Bash(pkill:*)"
     ]
   }
 }

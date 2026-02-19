@@ -3,7 +3,7 @@ interface Props {
 }
 
 export default function DashboardLink({ workspaceId }: Props) {
-  const dashboardUrl = `http://localhost:3001/workspace/${workspaceId}`;
+  const dashboardUrl = `http://localhost:3000/workspace/${workspaceId}`;
 
   return (
     <div className="dashboard-link">

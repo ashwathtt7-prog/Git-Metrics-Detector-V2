@@ -1,0 +1,4 @@
+name: git_metrics
+type: sqlite
+options:
+  filename: ../../backend/data/metrics.db

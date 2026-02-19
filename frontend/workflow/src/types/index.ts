@@ -10,6 +10,7 @@ export interface Job {
   created_at: string;
   completed_at?: string;
   workspace_id?: string;
+  progress_message?: string;
 }
 
 export interface Metric {

@@ -2,6 +2,35 @@ import type { Workspace, WorkspaceDetail, MetricEntry } from '../types';
 
 const BASE = '/api/dashboard';
 
+// --- Analytics Types ---
+
+export interface AnalyticsOverview {
+  totals: { workspaces: number; metrics: number; entries: number };
+  category_distribution: { category: string; count: number }[];
+  datatype_distribution: { data_type: string; count: number }[];
+  workspace_metrics: { workspace: string; category: string; count: number }[];
+  entry_trends: { date: string; count: number }[];
+  job_stats: { status: string; count: number }[];
+}
+
+export interface WorkspaceAnalytics {
+  category_distribution: { category: string; count: number }[];
+  datatype_distribution: { data_type: string; count: number }[];
+  metric_entry_counts: { metric: string; category: string; entries: number }[];
+}
+
+export async function getAnalyticsOverview(): Promise<AnalyticsOverview> {
+  const res = await fetch(`${BASE}/analytics/overview`);
+  if (!res.ok) throw new Error('Failed to fetch analytics');
+  return res.json();
+}
+
+export async function getWorkspaceAnalytics(id: string): Promise<WorkspaceAnalytics> {
+  const res = await fetch(`${BASE}/analytics/workspace/${id}`);
+  if (!res.ok) throw new Error('Failed to fetch workspace analytics');
+  return res.json();
+}
+
 export async function listWorkspaces(): Promise<Workspace[]> {
   const res = await fetch(`${BASE}/workspaces`);
   if (!res.ok) throw new Error('Failed to fetch workspaces');

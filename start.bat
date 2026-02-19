@@ -1,3 +1,4 @@
+
 @echo off
 echo ============================================
 echo   Git Metrics Detector - Starting Services
@@ -9,28 +10,27 @@ start "Backend" cmd /c "cd /d %~dp0backend && python -m uvicorn app.main:app --r
 
 timeout /t 3 /nobreak > nul
 
-echo [2/4] Starting Workflow app on port 3000...
-start "Workflow" cmd /c "cd /d %~dp0frontend\workflow && npm run dev"
+echo [2/4] Starting Dashboard app on port 3000...
+start "Dashboard" cmd /c "cd /d %~dp0frontend\dashboard && npm run dev -- --host"
 
-echo [3/4] Starting Dashboard app on port 3001...
-start "Dashboard" cmd /c "cd /d %~dp0frontend\dashboard && npm run dev"
+echo [3/4] Starting Workflow app on port 3001...
+start "Workflow" cmd /c "cd /d %~dp0frontend\workflow && npm run dev -- --host"
 
-echo [4/4] Starting Apache Superset on port 8088...
-if exist "%~dp0superset_venv\Scripts\superset.exe" (
-    start "Superset" cmd /c "set SUPERSET_CONFIG_PATH=%~dp0superset_config.py && %~dp0superset_venv\Scripts\superset.exe run -p 8088 --with-threads --reload"
-    echo       Superset starting...
+echo [4/4] Starting Evidence Analytics on port 3002...
+if exist "%~dp0evidence" (
+    start "Evidence" cmd /c "cd /d %~dp0evidence && npm run dev"
 ) else (
-    echo       [SKIP] Superset not installed. Run: python setup_superset.py
+    echo Evidence folder not found, skipping...
 )
 
 echo.
 echo ============================================
 echo   All services started!
 echo.
-echo   Backend:   http://localhost:8000/docs
-echo   Workflow:  http://localhost:3000
-echo   Dashboard: http://localhost:3001
-echo   Superset:  http://localhost:8088 (admin/admin)
+echo   Backend:    http://localhost:8000/docs
+echo   Dashboard:  http://localhost:3000
+echo   Workflow:   http://localhost:3001
+echo   Evidence:   http://localhost:3002
 echo ============================================
 echo.
 echo Press any key to close this window...

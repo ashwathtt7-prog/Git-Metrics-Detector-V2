@@ -20,6 +20,7 @@ class JobResponse(BaseModel):
     created_at: str
     completed_at: Optional[str] = None
     workspace_id: Optional[str] = None
+    progress_message: Optional[str] = None
 
 
 class MetricResponse(BaseModel):

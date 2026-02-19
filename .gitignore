@@ -23,10 +23,9 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Superset
-superset_venv/
-superset_data/
-superset_config.py
+# Evidence
+evidence/.evidence/
+evidence/node_modules/
 
 # Logs
 *.log

@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import MetricColumn from '../components/MetricColumn';
-import { getWorkspace } from '../api/dashboardApi';
+import { getWorkspace, getWorkspaceAnalytics } from '../api/dashboardApi';
 import type { WorkspaceDetail } from '../types';
+import type { WorkspaceAnalytics } from '../api/dashboardApi';
+import CategoryPieChart from '../components/charts/CategoryPieChart';
+import DataTypeBarChart from '../components/charts/DataTypeBarChart';
+import MetricEntriesChart from '../components/charts/MetricEntriesChart';
+
+type Tab = 'metrics' | 'charts';
 
 export default function WorkspacePage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
   const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null);
+  const [analytics, setAnalytics] = useState<WorkspaceAnalytics | null>(null);
+  const [tab, setTab] = useState<Tab>('metrics');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -15,6 +23,9 @@ export default function WorkspacePage() {
     getWorkspace(workspaceId)
       .then(setWorkspace)
       .catch(() => setError('Workspace not found'));
+    getWorkspaceAnalytics(workspaceId)
+      .then(setAnalytics)
+      .catch(() => {});
   }, [workspaceId]);
 
   if (error) {
@@ -51,11 +62,49 @@ export default function WorkspacePage() {
         {workspace.metrics.length} metric{workspace.metrics.length !== 1 ? 's' : ''} discovered
       </div>
 
-      <div className="metrics-columns">
-        {workspace.metrics.map((m) => (
-          <MetricColumn key={m.id} metric={m} />
-        ))}
+      <div className="tab-nav">
+        <button
+          className={`tab-btn ${tab === 'metrics' ? 'active' : ''}`}
+          onClick={() => setTab('metrics')}
+        >
+          Metrics
+        </button>
+        <button
+          className={`tab-btn ${tab === 'charts' ? 'active' : ''}`}
+          onClick={() => setTab('charts')}
+        >
+          Charts
+        </button>
       </div>
+
+      {tab === 'metrics' && (
+        <div className="metrics-columns">
+          {workspace.metrics.map((m) => (
+            <MetricColumn key={m.id} metric={m} />
+          ))}
+        </div>
+      )}
+
+      {tab === 'charts' && analytics && (
+        <div>
+          <div className="chart-row">
+            <div className="chart-card">
+              <h3>Category Distribution</h3>
+              <CategoryPieChart data={analytics.category_distribution} />
+            </div>
+            <div className="chart-card">
+              <h3>Data Types</h3>
+              <DataTypeBarChart data={analytics.datatype_distribution} />
+            </div>
+          </div>
+          <div className="chart-row">
+            <div className="chart-card chart-full-width">
+              <h3>Entries per Metric</h3>
+              <MetricEntriesChart data={analytics.metric_entry_counts} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

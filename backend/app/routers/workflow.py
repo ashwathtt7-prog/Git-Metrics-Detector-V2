@@ -11,6 +11,16 @@ from ..services.analysis_service import create_job, run_analysis
 router = APIRouter()
 
 
+def _job_response(job: AnalysisJob) -> JobResponse:
+    return JobResponse(
+        id=job.id, repo_url=job.repo_url, repo_owner=job.repo_owner,
+        repo_name=job.repo_name, status=job.status, error_message=job.error_message,
+        total_files=job.total_files, analyzed_files=job.analyzed_files,
+        created_at=job.created_at, completed_at=job.completed_at,
+        workspace_id=job.workspace_id, progress_message=job.progress_message,
+    )
+
+
 @router.post("/analyze", response_model=JobResponse)
 async def start_analysis(
     request: AnalyzeRequest,
@@ -20,16 +30,7 @@ async def start_analysis(
     token = settings.github_token or None
     job = await create_job(session, request.repo_url, token)
     background_tasks.add_task(run_analysis, job.id, request.repo_url, token)
-    return JobResponse(
-        id=job.id,
-        repo_url=job.repo_url,
-        repo_owner=job.repo_owner,
-        repo_name=job.repo_name,
-        status=job.status,
-        total_files=job.total_files,
-        analyzed_files=job.analyzed_files,
-        created_at=job.created_at,
-    )
+    return _job_response(job)
 
 
 @router.get("/jobs", response_model=List[JobResponse])
@@ -38,16 +39,7 @@ async def list_jobs(session: AsyncSession = Depends(get_session)):
         select(AnalysisJob).order_by(AnalysisJob.created_at.desc()).limit(20)
     )
     jobs = result.scalars().all()
-    return [
-        JobResponse(
-            id=j.id, repo_url=j.repo_url, repo_owner=j.repo_owner,
-            repo_name=j.repo_name, status=j.status, error_message=j.error_message,
-            total_files=j.total_files, analyzed_files=j.analyzed_files,
-            created_at=j.created_at, completed_at=j.completed_at,
-            workspace_id=j.workspace_id,
-        )
-        for j in jobs
-    ]
+    return [_job_response(j) for j in jobs]
 
 
 @router.get("/jobs/{job_id}", response_model=JobResponse)
@@ -55,13 +47,7 @@ async def get_job(job_id: str, session: AsyncSession = Depends(get_session)):
     job = await session.get(AnalysisJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return JobResponse(
-        id=job.id, repo_url=job.repo_url, repo_owner=job.repo_owner,
-        repo_name=job.repo_name, status=job.status, error_message=job.error_message,
-        total_files=job.total_files, analyzed_files=job.analyzed_files,
-        created_at=job.created_at, completed_at=job.completed_at,
-        workspace_id=job.workspace_id,
-    )
+    return _job_response(job)
 
 
 @router.get("/jobs/{job_id}/metrics", response_model=JobMetricsResponse)
@@ -88,13 +74,7 @@ async def get_job_metrics(job_id: str, session: AsyncSession = Depends(get_sessi
         ]
 
     return JobMetricsResponse(
-        job=JobResponse(
-            id=job.id, repo_url=job.repo_url, repo_owner=job.repo_owner,
-            repo_name=job.repo_name, status=job.status, error_message=job.error_message,
-            total_files=job.total_files, analyzed_files=job.analyzed_files,
-            created_at=job.created_at, completed_at=job.completed_at,
-            workspace_id=job.workspace_id,
-        ),
+        job=_job_response(job),
         metrics=metrics,
         workspace_id=job.workspace_id,
     )

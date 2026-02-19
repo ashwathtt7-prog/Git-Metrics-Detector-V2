@@ -3,6 +3,7 @@ uvicorn[standard]
 sqlalchemy[asyncio]
 aiosqlite
 google-genai
+groq
 httpx
 python-dotenv
 pydantic-settings

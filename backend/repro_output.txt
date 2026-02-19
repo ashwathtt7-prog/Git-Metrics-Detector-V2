@@ -1,0 +1,18 @@
+Gemini Key Present: True
+Groq Key Present: True
+OpenRouter Key Present: True
+Using real Groq client with model: groq-llama-3.3-70b
+Starting generaFallback failed with error: All LLM providers failed. Errors: <MagicMock name='gemini-mock.name' id='1547934470048'>: Simulated Gemini Failure; groq-llama-3.3-70b: Simulated Real Groq Failure; openrouter-llama-3.3-70b: Client error '429 Too Many Requests' for url 'https://openrouter.ai/api/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429; openrouter-llama-3.3-70b: Client error '429 Too Many Requests' for url 'https://openrouter.ai/api/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429; openrouter-llama-3.3-70b: Client error '429 Too Many Requests' for url 'https://openrouter.ai/api/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429
+Traceback (most recent call last):
+  File "D:\git-metrics-detector\backend\repro_fallback.py", line 68, in main
+    log(f"Result: {result}")
+  File "D:\git-metrics-detector\backend\app\services\llm\provider_chain.py", line 86, in generate
+    raise RuntimeError(
+RuntimeError: All LLM providers failed. Errors: <MagicMock name='gemini-mock.name' id='1547934470048'>: Simulated Gemini Failure; groq-llama-3.3-70b: Simulated Real Groq Failure; openrouter-llama-3.3-70b: Client error '429 Too Many Requests' for url 'https://openrouter.ai/api/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429; openrouter-llama-3.3-70b: Client error '429 Too Many Requests' for url 'https://openrouter.ai/api/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429; openrouter-llama-3.3-70b: Client error '429 Too Many Requests' for url 'https://openrouter.ai/api/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429
+

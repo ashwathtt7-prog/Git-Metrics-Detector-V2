@@ -48,6 +48,21 @@ body {
   opacity: 0.9;
 }
 
+.btn-analytics-link {
+  padding: 0.6rem 1.25rem;
+  background: linear-gradient(135deg, #7c3aed, #ec4899);
+  color: white;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: opacity 0.2s;
+}
+
+.btn-analytics-link:hover {
+  opacity: 0.9;
+}
+
 /* --- Empty State --- */
 .empty-state {
   text-align: center;
@@ -457,128 +472,111 @@ body {
   background: rgba(96, 165, 250, 0.1);
 }
 
-.tab-btn.superset-external {
-  margin-left: auto;
-  font-size: 0.82rem;
-  color: #7c3aed;
-}
-
-.tab-btn.superset-external:hover {
-  color: #a78bfa;
-}
-
-/* --- Superset Container --- */
-.superset-container {
-  animation: fadeIn 0.3s ease-in;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.superset-info {
-  text-align: center;
+/* --- KPI Cards --- */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
   margin-bottom: 2rem;
 }
 
-.superset-info h2 {
-  font-size: 1.6rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, #7c3aed, #ec4899);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  margin-bottom: 0.5rem;
-}
-
-.superset-info > p {
-  color: #94a3b8;
-  font-size: 0.95rem;
-  max-width: 600px;
-  margin: 0 auto 1.5rem;
-  line-height: 1.5;
-}
-
-/* --- Feature Cards --- */
-.superset-features {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.feature-card {
+.kpi-card {
   background: #1e293b;
   border: 1px solid #334155;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 1.25rem;
   text-align: center;
-  transition: border-color 0.2s, transform 0.2s;
 }
 
-.feature-card:hover {
-  border-color: #7c3aed;
-  transform: translateY(-2px);
+.kpi-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-.feature-icon {
-  font-size: 2rem;
-  display: block;
-  margin-bottom: 0.5rem;
-}
-
-.feature-card h3 {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #e2e8f0;
-  margin-bottom: 0.3rem;
-}
-
-.feature-card p {
-  font-size: 0.8rem;
+.kpi-label {
+  font-size: 0.85rem;
   color: #94a3b8;
-  line-height: 1.4;
+  margin-top: 0.25rem;
 }
 
-/* --- Superset Embed --- */
-.superset-embed-wrapper {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 12px;
-  overflow: hidden;
+/* --- Chart Layout --- */
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
   margin-bottom: 1.5rem;
 }
 
-.superset-iframe {
-  width: 100%;
-  height: 700px;
-  border: none;
-  display: block;
-}
-
-/* --- Getting Started --- */
-.superset-help {
+.chart-card {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 12px;
-  padding: 1.5rem 2rem;
+  padding: 1.25rem;
 }
 
-.superset-help h3 {
-  font-size: 1.1rem;
+.chart-card h3 {
+  font-size: 1rem;
   font-weight: 600;
   color: #e2e8f0;
   margin-bottom: 1rem;
 }
 
-.superset-help ol {
-  padding-left: 1.5rem;
-  color: #94a3b8;
-  font-size: 0.9rem;
-  line-height: 2;
+.chart-full-width {
+  grid-column: 1 / -1;
 }
 
-.superset-help ol strong {
+.no-data {
+  text-align: center;
+  color: #64748b;
+  padding: 2rem;
+  font-size: 0.9rem;
+}
+
+/* --- Filter Bar --- */
+.filter-bar {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.filter-bar label {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.filter-bar select {
+  padding: 0.5rem 1rem;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 8px;
   color: #e2e8f0;
+  font-size: 0.9rem;
+  min-width: 200px;
+}
+
+.filter-bar select:focus {
+  border-color: #60a5fa;
+  outline: none;
+}
+
+/* --- Analytics Page --- */
+.analytics-page {
+  max-width: 1200px;
+}
+
+/* --- Responsive --- */
+@media (max-width: 768px) {
+  .chart-row {
+    grid-template-columns: 1fr;
+  }
+
+  .kpi-row {
+    grid-template-columns: 1fr;
+  }
 }
 

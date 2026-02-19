@@ -9,7 +9,7 @@ from ..schemas import (
     WorkspaceResponse, WorkspaceDetailResponse, MetricResponse,
     MetricEntryCreate, MetricEntryResponse,
 )
-from ..models import Workspace, Metric, MetricEntry
+from ..models import Workspace, Metric, MetricEntry, AnalysisJob
 
 router = APIRouter()
 
@@ -131,3 +131,120 @@ async def get_metric_entries(metric_id: str, session: AsyncSession = Depends(get
         )
         for e in result.scalars().all()
     ]
+
+
+# --- Analytics Endpoints ---
+
+@router.get("/analytics/overview")
+async def get_analytics_overview(session: AsyncSession = Depends(get_session)):
+    ws_count = (await session.execute(select(func.count()).select_from(Workspace))).scalar()
+    metric_count = (await session.execute(select(func.count()).select_from(Metric))).scalar()
+    entry_count = (await session.execute(select(func.count()).select_from(MetricEntry))).scalar()
+
+    cat_result = await session.execute(
+        select(Metric.category, func.count()).group_by(Metric.category)
+    )
+    category_distribution = [
+        {"category": row[0] or "uncategorized", "count": row[1]}
+        for row in cat_result.all()
+    ]
+
+    dtype_result = await session.execute(
+        select(Metric.data_type, func.count()).group_by(Metric.data_type)
+    )
+    datatype_distribution = [
+        {"data_type": row[0] or "unknown", "count": row[1]}
+        for row in dtype_result.all()
+    ]
+
+    ws_metric_result = await session.execute(
+        select(Workspace.name, Metric.category, func.count())
+        .join(Metric, Workspace.id == Metric.workspace_id)
+        .group_by(Workspace.name, Metric.category)
+    )
+    workspace_metrics = [
+        {"workspace": row[0], "category": row[1] or "uncategorized", "count": row[2]}
+        for row in ws_metric_result.all()
+    ]
+
+    entries_result = await session.execute(
+        select(
+            func.substr(MetricEntry.recorded_at, 1, 10).label("date"),
+            func.count(),
+        )
+        .group_by("date")
+        .order_by("date")
+        .limit(30)
+    )
+    entry_trends = [
+        {"date": row[0], "count": row[1]}
+        for row in entries_result.all()
+    ]
+
+    jobs_result = await session.execute(
+        select(AnalysisJob.status, func.count()).group_by(AnalysisJob.status)
+    )
+    job_stats = [
+        {"status": row[0], "count": row[1]}
+        for row in jobs_result.all()
+    ]
+
+    return {
+        "totals": {
+            "workspaces": ws_count,
+            "metrics": metric_count,
+            "entries": entry_count,
+        },
+        "category_distribution": category_distribution,
+        "datatype_distribution": datatype_distribution,
+        "workspace_metrics": workspace_metrics,
+        "entry_trends": entry_trends,
+        "job_stats": job_stats,
+    }
+
+
+@router.get("/analytics/workspace/{workspace_id}")
+async def get_workspace_analytics(
+    workspace_id: str, session: AsyncSession = Depends(get_session)
+):
+    ws = await session.get(Workspace, workspace_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    cat_result = await session.execute(
+        select(Metric.category, func.count())
+        .where(Metric.workspace_id == workspace_id)
+        .group_by(Metric.category)
+    )
+    category_distribution = [
+        {"category": row[0] or "uncategorized", "count": row[1]}
+        for row in cat_result.all()
+    ]
+
+    dtype_result = await session.execute(
+        select(Metric.data_type, func.count())
+        .where(Metric.workspace_id == workspace_id)
+        .group_by(Metric.data_type)
+    )
+    datatype_distribution = [
+        {"data_type": row[0] or "unknown", "count": row[1]}
+        for row in dtype_result.all()
+    ]
+
+    metric_entries = await session.execute(
+        select(Metric.name, Metric.category, func.count(MetricEntry.id))
+        .outerjoin(MetricEntry, Metric.id == MetricEntry.metric_id)
+        .where(Metric.workspace_id == workspace_id)
+        .group_by(Metric.id)
+        .order_by(Metric.display_order)
+    )
+    metric_entry_counts = [
+        {"metric": row[0], "category": row[1] or "uncategorized", "entries": row[2]}
+        for row in metric_entries.all()
+    ]
+
+    return {
+        "category_distribution": category_distribution,
+        "datatype_distribution": datatype_distribution,
+        "metric_entry_counts": metric_entry_counts,
+    }

@@ -17,6 +17,7 @@ class AnalysisJob(Base):
     created_at = Column(Text, nullable=False)
     completed_at = Column(Text)
     workspace_id = Column(Text, ForeignKey("workspaces.id"))
+    progress_message = Column(Text)
 
     workspace = relationship("Workspace", back_populates="analysis_job")
 
