@@ -11,6 +11,8 @@ export interface Job {
   completed_at?: string;
   workspace_id?: string;
   progress_message?: string;
+  current_stage: number;
+  logs?: string;
 }
 
 export interface Metric {

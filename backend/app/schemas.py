@@ -6,6 +6,7 @@ from typing import Optional, List
 
 class AnalyzeRequest(BaseModel):
     repo_url: str
+    github_token: Optional[str] = None
 
 
 class JobResponse(BaseModel):
@@ -21,6 +22,8 @@ class JobResponse(BaseModel):
     completed_at: Optional[str] = None
     workspace_id: Optional[str] = None
     progress_message: Optional[str] = None
+    current_stage: int = 1
+    logs: Optional[str] = None
 
 
 class MetricResponse(BaseModel):
@@ -60,6 +63,7 @@ class WorkspaceDetailResponse(BaseModel):
     description: Optional[str] = None
     created_at: str
     updated_at: str
+    dashboard_config: Optional[str] = None
     metrics: List[MetricResponse]
 
 

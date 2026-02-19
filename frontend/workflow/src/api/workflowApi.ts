@@ -2,11 +2,14 @@ import type { Job, JobMetrics } from '../types';
 
 const BASE = '/api/workflow';
 
-export async function startAnalysis(repoUrl: string): Promise<Job> {
+export async function startAnalysis(repoUrl: string, githubToken?: string): Promise<Job> {
   const res = await fetch(`${BASE}/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ repo_url: repoUrl }),
+    body: JSON.stringify({
+      repo_url: repoUrl,
+      github_token: githubToken
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Failed to start analysis' }));

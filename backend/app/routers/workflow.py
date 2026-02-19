@@ -18,6 +18,7 @@ def _job_response(job: AnalysisJob) -> JobResponse:
         total_files=job.total_files, analyzed_files=job.analyzed_files,
         created_at=job.created_at, completed_at=job.completed_at,
         workspace_id=job.workspace_id, progress_message=job.progress_message,
+        current_stage=job.current_stage, logs=job.logs,
     )
 
 
@@ -27,8 +28,7 @@ async def start_analysis(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
-    raw_token = settings.github_token.strip()
-    token = raw_token if raw_token and not raw_token.startswith("your_") else None
+    token = request.github_token or settings.github_token or None
     job = await create_job(session, request.repo_url, token)
     background_tasks.add_task(run_analysis, job.id, request.repo_url, token)
     return _job_response(job)

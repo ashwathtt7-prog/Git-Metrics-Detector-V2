@@ -18,6 +18,8 @@ class AnalysisJob(Base):
     completed_at = Column(Text)
     workspace_id = Column(Text, ForeignKey("workspaces.id"))
     progress_message = Column(Text)
+    current_stage = Column(Integer, default=1)
+    logs = Column(Text)  # JSON list of log strings
 
     workspace = relationship("Workspace", back_populates="analysis_job")
 
@@ -31,6 +33,7 @@ class Workspace(Base):
     description = Column(Text)
     created_at = Column(Text, nullable=False)
     updated_at = Column(Text, nullable=False)
+    dashboard_config = Column(Text)  # JSON string of layout configuration
 
     analysis_job = relationship("AnalysisJob", back_populates="workspace", uselist=False)
     metrics = relationship("Metric", back_populates="workspace", cascade="all, delete-orphan")

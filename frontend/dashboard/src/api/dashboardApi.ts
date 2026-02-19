@@ -16,7 +16,12 @@ export interface AnalyticsOverview {
 export interface WorkspaceAnalytics {
   category_distribution: { category: string; count: number }[];
   datatype_distribution: { data_type: string; count: number }[];
-  metric_entry_counts: { metric: string; category: string; entries: number }[];
+  metric_values: {
+    metric: string;
+    category: string;
+    value: number;
+    display_value: string;
+  }[];
 }
 
 export async function getAnalyticsOverview(): Promise<AnalyticsOverview> {

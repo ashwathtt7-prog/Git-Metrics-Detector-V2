@@ -6,7 +6,7 @@ echo ============================================
 echo.
 
 echo [1/4] Starting FastAPI backend on port 8000...
-start "Backend" cmd /c "cd /d %~dp0backend && python -m uvicorn app.main:app --reload --port 8000"
+start "Backend" cmd /c "cd /d %~dp0backend && call venv\Scripts\activate && python -m uvicorn app.main:app --reload --port 8000"
 
 timeout /t 3 /nobreak > nul
 
