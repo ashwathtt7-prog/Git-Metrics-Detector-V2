@@ -27,7 +27,8 @@ async def start_analysis(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
-    token = settings.github_token or None
+    raw_token = settings.github_token.strip()
+    token = raw_token if raw_token and not raw_token.startswith("your_") else None
     job = await create_job(session, request.repo_url, token)
     background_tasks.add_task(run_analysis, job.id, request.repo_url, token)
     return _job_response(job)

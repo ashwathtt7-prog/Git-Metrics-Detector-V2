@@ -27,7 +27,10 @@ def parse_repo_url(url: str) -> tuple:
 
 
 def _headers(token: Optional[str]) -> dict:
-    h = {"Accept": "application/vnd.github.v3+json"}
+    h = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "Git-Metrics-Detector/1.0",
+    }
     if token:
         h["Authorization"] = f"Bearer {token}"
     return h

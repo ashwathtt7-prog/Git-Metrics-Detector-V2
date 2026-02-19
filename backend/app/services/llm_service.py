@@ -3,33 +3,10 @@ from __future__ import annotations
 import json
 import re
 import logging
-
-from .llm.provider_chain import LLMProviderChain
-from .llm.gemini_provider import GeminiProvider
-from .llm.groq_provider import GroqProvider
-from .llm.openrouter_provider import OpenRouterProvider
-from .llm.ollama_provider import OllamaProvider
+from typing import List, Dict
+from .providers import get_provider
 
 logger = logging.getLogger(__name__)
-
-_chain: LLMProviderChain | None = None
-
-
-def _get_chain() -> LLMProviderChain:
-    global _chain
-    if _chain is None:
-        _chain = LLMProviderChain([
-            GeminiProvider(),
-            GroqProvider(),
-            OpenRouterProvider(),
-            OllamaProvider(),
-        ])
-    return _chain
-
-
-def get_batch_token_limit() -> int:
-    """Return the safe token limit for batching, based on available providers."""
-    return _get_chain().get_max_context_tokens()
 
 
 def _format_files_for_prompt(files: list[dict]) -> str:
@@ -46,6 +23,7 @@ def _parse_json_response(raw: str) -> dict:
     except json.JSONDecodeError:
         pass
 
+    # Try extracting from markdown code blocks
     match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw)
     if match:
         try:
@@ -53,6 +31,7 @@ def _parse_json_response(raw: str) -> dict:
         except json.JSONDecodeError:
             pass
 
+    # Try finding first { ... } block
     match = re.search(r"\{[\s\S]*\}", raw)
     if match:
         try:
@@ -64,8 +43,9 @@ def _parse_json_response(raw: str) -> dict:
 
 
 async def _call_llm(prompt: str) -> str:
-    chain = _get_chain()
-    return await chain.generate(prompt)
+    """Call the configured LLM provider with retry logic."""
+    provider = get_provider()
+    return await provider.generate_with_retry(prompt, json_mode=True)
 
 
 async def analyze_project_overview(file_tree: list[str], key_files: list[dict]) -> dict:
@@ -182,3 +162,49 @@ Respond in the following JSON format exactly:
     raw = await _call_llm(prompt)
     result = _parse_json_response(raw)
     return result.get("metrics", [])
+
+
+async def suggest_dashboard_charts(project_summary: dict, metrics: list[dict]) -> list[dict]:
+    """Pass 4: Ask LLM to suggest Superset chart types for the discovered metrics."""
+    summary_str = json.dumps(project_summary, indent=2)
+    metrics_str = json.dumps(metrics, indent=2)
+
+    prompt = f"""You are a data visualization expert. Given a software project and its discovered metrics, suggest the best Apache Superset chart types for a dashboard.
+
+PROJECT CONTEXT:
+{summary_str}
+
+DISCOVERED METRICS:
+{metrics_str}
+
+For this project's dashboard, suggest 3-6 charts that would give the best overview. For each chart, specify:
+- chart_type: one of "pie", "bar", "table", "big_number", "big_number_total", "line", "area"
+- title: a descriptive chart title
+- description: what this chart shows
+- metrics_used: which metric categories or specific metric names this chart covers
+- groupby: what to group by (e.g., "category", "data_type", "name")
+- metric_expression: what to aggregate (e.g., "COUNT(*)", "COUNT(id)")
+
+Consider:
+- A pie chart for category distribution
+- A table showing all metrics with details
+- Big number cards for key counts
+- Bar charts comparing metrics across categories
+
+Respond in JSON format exactly:
+{{
+  "charts": [
+    {{
+      "chart_type": "string",
+      "title": "string",
+      "description": "string",
+      "metrics_used": ["string"],
+      "groupby": ["string"],
+      "metric_expression": "string"
+    }}
+  ]
+}}"""
+
+    raw = await _call_llm(prompt)
+    result = _parse_json_response(raw)
+    return result.get("charts", [])

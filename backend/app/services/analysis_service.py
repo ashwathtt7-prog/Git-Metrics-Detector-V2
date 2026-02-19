@@ -9,7 +9,7 @@ from ..database import async_session
 from ..models import AnalysisJob
 from ..utils.file_filters import get_file_priority
 from ..utils.token_estimator import create_batches
-from . import github_service, llm_service, workspace_service
+from . import github_service, llm_service, workspace_service, superset_service
 
 
 async def create_job(session: AsyncSession, repo_url: str, github_token: Optional[str]) -> AnalysisJob:
@@ -33,7 +33,7 @@ async def create_job(session: AsyncSession, repo_url: str, github_token: Optiona
 
 
 async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
-    """Background task: fetch repo, analyze with Gemini AI, create workspace."""
+    """Background task: fetch repo, analyze with LLM, create workspace."""
     async with async_session() as session:
         try:
             job = await session.get(AnalysisJob, job_id)
@@ -42,7 +42,6 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
 
             # --- Step 1: Fetch repo tree ---
             job.status = "fetching"
-            job.progress_message = "Scanning repository structure..."
             await session.commit()
 
             owner, repo = github_service.parse_repo_url(repo_url)
@@ -55,16 +54,8 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                 job.analyzed_files = completed
                 await session.commit()
 
-            # Cap files to fetch for very large repos (files are already priority-sorted)
-            MAX_FILES_TO_FETCH = 200
-            if len(file_paths) > MAX_FILES_TO_FETCH:
-                print(f"Large repo detected ({len(file_paths)} files). Fetching top {MAX_FILES_TO_FETCH} priority files.")
-                file_paths_to_fetch = file_paths[:MAX_FILES_TO_FETCH]
-            else:
-                file_paths_to_fetch = file_paths
-
             files = await github_service.fetch_files_batch(
-                owner, repo, file_paths_to_fetch, github_token, on_progress
+                owner, repo, file_paths, github_token, on_progress
             )
 
             if not files:
@@ -75,7 +66,6 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
 
             # --- Step 3: LLM Analysis ---
             job.status = "analyzing"
-            job.progress_message = "Starting AI analysis..."
             await session.commit()
 
             # Separate key files for project overview
@@ -84,29 +74,21 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                 key_files = files[:5]
 
             # Pass 1: Project overview
-            job.progress_message = "Pass 1: Understanding project structure..."
-            await session.commit()
             project_summary = await llm_service.analyze_project_overview(
                 file_paths, key_files
             )
 
             # Pass 2: Metrics discovery (with batching if needed)
-            batches = create_batches(files, max_tokens=llm_service.get_batch_token_limit())
+            batches = create_batches(files)
 
             if len(batches) == 1:
-                job.progress_message = "Pass 2: Discovering metrics..."
-                await session.commit()
                 metrics = await llm_service.discover_metrics(project_summary, batches[0])
             else:
                 batch_results = []
-                for i, batch in enumerate(batches):
-                    job.progress_message = f"Pass 2: Discovering metrics (batch {i+1}/{len(batches)})..."
-                    await session.commit()
+                for batch in batches:
                     batch_metrics = await llm_service.discover_metrics(project_summary, batch)
                     batch_results.append(batch_metrics)
                 # Pass 3: Consolidate
-                job.progress_message = "Pass 3: Consolidating metrics..."
-                await session.commit()
                 metrics = await llm_service.consolidate_metrics(project_summary, batch_results)
 
             if not metrics:
@@ -119,8 +101,6 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
             project_name = project_summary.get("project_name", f"{owner}/{repo}")
             description = project_summary.get("description", "")
 
-            job.progress_message = "Creating workspace..."
-            await session.commit()
             workspace_id = await workspace_service.create_workspace_with_metrics(
                 session=session,
                 name=project_name,
@@ -129,7 +109,26 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                 metrics_data=metrics,
             )
 
-            # --- Step 5: Mark complete ---
+            # --- Step 5: LLM suggests dashboard charts ---
+            chart_suggestions = None
+            try:
+                chart_suggestions = await llm_service.suggest_dashboard_charts(
+                    project_summary, metrics
+                )
+            except Exception as e:
+                import logging
+                logging.warning(f"Chart suggestion failed, using defaults: {e}")
+
+            # --- Step 6: Create Superset dashboard ---
+            try:
+                await superset_service.create_superset_dashboard(
+                    workspace_id, project_name, chart_suggestions
+                )
+            except Exception as e:
+                import logging
+                logging.warning(f"Failed to create Superset dashboard: {e}")
+
+            # --- Step 7: Mark complete ---
             # Re-fetch job since workspace_service committed
             job = await session.get(AnalysisJob, job_id)
             job.workspace_id = workspace_id
