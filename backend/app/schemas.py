@@ -7,6 +7,7 @@ from typing import Optional, List
 class AnalyzeRequest(BaseModel):
     repo_url: str
     github_token: Optional[str] = None
+    force: bool = False
 
 
 class JobResponse(BaseModel):
@@ -26,6 +27,14 @@ class JobResponse(BaseModel):
     logs: Optional[str] = None
 
 
+class MetricEntryResponse(BaseModel):
+    id: str
+    metric_id: str
+    value: Optional[str] = None
+    recorded_at: str
+    notes: Optional[str] = None
+
+
 class MetricResponse(BaseModel):
     id: str
     workspace_id: str
@@ -38,6 +47,7 @@ class MetricResponse(BaseModel):
     source_platform: Optional[str] = None
     display_order: int = 0
     created_at: str
+    entries: List[MetricEntryResponse] = []
 
 
 class JobMetricsResponse(BaseModel):
@@ -71,12 +81,4 @@ class WorkspaceDetailResponse(BaseModel):
 
 class MetricEntryCreate(BaseModel):
     value: str
-    notes: Optional[str] = None
-
-
-class MetricEntryResponse(BaseModel):
-    id: str
-    metric_id: str
-    value: Optional[str] = None
-    recorded_at: str
     notes: Optional[str] = None

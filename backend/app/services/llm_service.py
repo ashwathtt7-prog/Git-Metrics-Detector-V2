@@ -39,36 +39,106 @@ def _format_files_for_prompt(files: list[dict]) -> str:
     return "\n".join(parts)
 
 
+def _parse_json_with_thought(raw: str) -> tuple[dict, str]:
+    """Parse LLM JSON response and extract thinking block."""
+    thought = ""
+    # Search for thinking block - case insensitive and handle missing closing tag
+    thought_match = re.search(r"<thinking>([\s\S]*?)(?:</thinking>|$)", raw, re.IGNORECASE)
+    if thought_match:
+        thought = thought_match.group(1).strip()
+    
+    # Remove thinking block to find JSON
+    # Be more careful: only remove until the start of a JSON block if possible
+    json_start = raw.find("```json")
+    if json_start == -1:
+        json_start = raw.find("{")
+    
+    if json_start != -1:
+        # Extract thought from before the JSON
+        pre_json = raw[:json_start]
+        thought_match = re.search(r"<thinking>([\s\S]*?)(?:</thinking>|$)", pre_json, re.IGNORECASE)
+        if thought_match:
+            thought = thought_match.group(1).strip()
+        clean_raw = raw[json_start:].strip()
+    else:
+        # Fallback to old behavior
+        clean_raw = re.sub(r"<thinking>[\s\S]*?(?:</thinking>|$)", "", raw, flags=re.IGNORECASE).strip()
+
+    # Try direct JSON load
+    if clean_raw:
+        try:
+            return json.loads(clean_raw), thought
+        except json.JSONDecodeError:
+            pass
+
+    # Try finding JSON in markdown blocks
+    match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", clean_raw)
+    if not match:
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", clean_raw)
+    
+    if match:
+        try:
+            return json.loads(match.group(1)), thought
+        except json.JSONDecodeError:
+            pass
+
+    # Try finding the first { and last }
+    match = re.search(r"(\{[\s\S]*\})", clean_raw)
+    if not match:
+        # If no closing bracket, maybe it's truncated? 
+        # Try to find the start and then append closing brackets
+        start_match = re.search(r"(\{[\s\S]*)", clean_raw)
+        if start_match:
+            candidate = start_match.group(1).strip()
+            # Crude recovery: count open brackets/braces and append missing ones
+            open_braces = candidate.count("{") - candidate.count("}")
+            open_brackets = candidate.count("[") - candidate.count("]")
+            candidate += "}" * max(0, open_braces)
+            candidate += "]" * max(0, open_brackets)
+            try:
+                return json.loads(candidate), thought
+            except:
+                pass
+    else:
+        candidate = match.group(1)
+        try:
+            return json.loads(candidate), thought
+        except json.JSONDecodeError:
+            # Last ditch: try to fix common JSON errors like trailing commas
+            try:
+                # Remove trailing commas before closing braces/brackets
+                fixed = re.sub(r",\s*([\]}])", r"\1", candidate)
+                return json.loads(fixed), thought
+            except json.JSONDecodeError:
+                pass
+
+    # Even more desperate: try to find "mock_data": [...] or "metrics": [...]
+    for key in ["mock_data", "metrics", "cards"]:
+        match = re.search(rf'"{key}"\s*:\s*(\[[\s\S]*\])', clean_raw)
+        if match:
+            try:
+                data = json.loads(match.group(1))
+                return {key: data}, thought
+            except:
+                pass
+
+    logger.error(f"Failed to parse JSON from LLM. Raw response length: {len(raw)}")
+    logger.debug(f"Raw response: {raw}")
+    raise ValueError(f"Could not parse LLM response as JSON. This usually happens when the AI provides too much text or invalid formatting. Raw preview: {raw[:200]}...")
+
+
 def _parse_json_response(raw: str) -> dict:
-    """Parse LLM JSON response with fallbacks."""
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        pass
-
-    match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except json.JSONDecodeError:
-            pass
-
-    match = re.search(r"\{[\s\S]*\}", raw)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            pass
-
-    raise ValueError(f"Could not parse LLM response as JSON: {raw[:300]}...")
+    """Legacy parser for backward compatibility."""
+    res, _ = _parse_json_with_thought(raw)
+    return res
 
 
-async def _call_llm(prompt: str) -> str:
+async def _call_llm(prompt: str, model: str | None = None) -> str:
     chain = _get_chain()
-    return await chain.generate(prompt)
+    return await chain.generate(prompt, model_override=model)
 
 
-async def analyze_project_overview(file_tree: list[str], key_files: list[dict]) -> dict:
+async def analyze_project_overview(file_tree: list[str], key_files: list[dict]) -> tuple[dict, str]:
     """Pass 1: Get a high-level understanding of the project."""
     tree_str = "\n".join(file_tree)
     files_str = _format_files_for_prompt(key_files)
@@ -81,7 +151,12 @@ Here is the repository file tree:
 Here are the key files:
 {files_str}
 
-Respond in the following JSON format exactly:
+Respond in the following format:
+
+<thinking>
+[Analysis of the tech stack, domain, and architecture]
+</thinking>
+```json
 {{
   "project_name": "string",
   "description": "A 2-3 sentence summary of what this project does",
@@ -95,7 +170,7 @@ Respond in the following JSON format exactly:
 }}"""
 
     raw = await _call_llm(prompt)
-    return _parse_json_response(raw)
+    return _parse_json_with_thought(raw)
 
 
 async def discover_metrics(project_summary: dict, files: list[dict]) -> list[dict]:
@@ -128,7 +203,12 @@ For each metric, provide:
 - A source_table: the specific database table, API endpoint, or data collection where this metric can be found (e.g., 'users', 'orders', 'api_access_logs', '/api/v1/metrics'). Infer from the codebase.
 - A source_platform: the platform or system where this data lives (e.g., 'PostgreSQL', 'GCP BigQuery', 'Oracle DB', 'MongoDB', 'REST API', 'Application Logs', 'GitHub API'). Infer from the detected tech stack.
 
-Respond in the following JSON format exactly:
+Before providing the JSON, briefly analyze the codebase in a <thinking> block. Keep it under 3 sentences.
+Respond in the following format:
+<thinking>
+[Brief 1-3 sentence analysis]
+</thinking>
+```json
 {{
   "metrics": [
       {{
@@ -139,16 +219,16 @@ Respond in the following JSON format exactly:
         "suggested_source": "string describing where to measure this",
         "source_table": "string - the specific database table, API endpoint, or data collection",
         "source_platform": "string - the infrastructure platform (e.g., GCP, AWS, Oracle, PostgreSQL, MongoDB)",
-        "estimated_value": "string or number (e.g., '150', '25%', 'Active', 'High') - based on the code analysis (e.g., count routes for API count, count components for component count)"
+        "estimated_value": "string or number"
       }}
   ]
 }}
-
-Return between 8 and 25 metrics, ordered by importance. Focus on metrics that are specific and actionable for THIS particular project, not generic software metrics. Avoid vague metrics like "code quality" -- be specific."""
+```
+Return between 5 and 15 metrics, ordered by importance. Focus on metrics that are specific and actionable for THIS particular project, not generic software metrics. Avoid vague metrics like "code quality" -- be specific."""
 
     raw = await _call_llm(prompt)
-    result = _parse_json_response(raw)
-    return result.get("metrics", [])
+    result, thought = _parse_json_with_thought(raw)
+    return result.get("metrics", []), thought
 
 
 async def consolidate_metrics(project_summary: dict, batch_results: list[list[dict]]) -> list[dict]:
@@ -188,11 +268,11 @@ Respond in the following JSON format exactly:
 }}"""
 
     raw = await _call_llm(prompt)
-    result = _parse_json_response(raw)
-    return result.get("metrics", [])
+    result, thought = _parse_json_with_thought(raw)
+    return result.get("metrics", []), thought
 
 
-async def generate_dashboard_code(project_summary: dict, metrics: list[dict], workspace_id: str) -> str:
+async def generate_dashboard_code(project_summary: dict, metrics: list[dict], workspace_id: str, model: str | None = None) -> str:
     """Pass 4: Generate a React component for the dashboard."""
     summary_str = json.dumps(project_summary, indent=2)
     metrics_str = json.dumps(metrics, indent=2)
@@ -237,7 +317,7 @@ async def generate_dashboard_code(project_summary: dict, metrics: list[dict], wo
 
     """
 
-    raw = await _call_llm(prompt)
+    raw = await _call_llm(prompt, model=model)
 
     # Clean up markdown code blocks if present
     code = raw.strip()
@@ -252,7 +332,7 @@ async def generate_dashboard_code(project_summary: dict, metrics: list[dict], wo
     return code
 
 
-async def generate_mock_data(metrics: list[dict], workspace_name: str) -> list[dict]:
+async def generate_mock_data(metrics: list[dict], workspace_name: str, model: str | None = None) -> list[dict]:
     """Generate realistic mock data entries for each metric using the LLM."""
     metrics_str = json.dumps(metrics, indent=2)
 
@@ -262,38 +342,33 @@ belonging to workspace "{workspace_name}".
 METRICS:
 {metrics_str}
 
-For each metric, generate between 10 and 30 data entries spanning the last 90 days.
+For each metric, generate between 10 and 20 data entries spanning the last 60 days.
 The data should follow realistic patterns:
 - Numbers should have realistic ranges and trends (gradual growth, seasonal patterns, etc.)
 - Percentages should be between 0 and 100
 - Boolean metrics should have a mix of true/false
 - String metrics should have realistic categorical values
 
-Respond in the following JSON format exactly:
+Respond in the following format:
+<thinking>
+[Brief planning]
+</thinking>
+```json
 {{
-  "mock_data": [
-    {{
-      "metric_name": "string (must match a metric name exactly)",
-      "entries": [
-        {{
-          "value": "string representation of the value",
-          "recorded_at": "ISO 8601 date string (e.g., 2026-01-15T10:00:00Z)",
-          "notes": "optional note about this data point"
-        }}
-      ]
-    }}
-  ]
+  "mock_data": [ ... ]
 }}
+```
 
-Make the data look realistic and varied. For growth metrics, show an upward trend.
-For performance metrics, show occasional spikes. Include some data anomalies for realism."""
+IMPORTANT: For each metric, generate between 8 and 12 data entries spanning the last 30 days.
+THE JSON MUST BE THE ONLY CONTENT OUTSIDE THE THINKING TAG. DO NOT ADD PREAMBLE OR CLOSING REMARKS.
+"""
 
-    raw = await _call_llm(prompt)
-    result = _parse_json_response(raw)
-    return result.get("mock_data", [])
+    raw = await _call_llm(prompt, model=model)
+    result, thought = _parse_json_with_thought(raw)
+    return result.get("mock_data", []), thought
 
 
-async def generate_dashboard_plan(metrics: list[dict], workspace_name: str, workspace_id: str) -> dict:
+async def generate_dashboard_plan(metrics: list[dict], workspace_name: str, workspace_id: str, model: str | None = None) -> dict:
     """Ask the LLM to plan a Metabase dashboard: decide chart types and write SQL queries."""
     metrics_str = json.dumps(metrics, indent=2)
 
@@ -333,7 +408,13 @@ Design a dashboard with 5-10 charts. For each chart, decide:
 
 Available chart types: bar, line, pie, scalar, area, row, table
 
-Respond in the following JSON format exactly:
+Before providing the JSON, briefly explain your design choices in a <thinking> block (2-3 sentences max).
+
+Respond in the following format:
+<thinking>
+[Brief design rationale]
+</thinking>
+```json
 {{
   "dashboard_name": "string - a descriptive name for the dashboard",
   "description": "string - brief description",
@@ -360,5 +441,18 @@ IMPORTANT SQL NOTES:
 
 Design the dashboard to be insightful and specific to these metrics. Group related charts together."""
 
-    raw = await _call_llm(prompt)
-    return _parse_json_response(raw)
+    raw = await _call_llm(prompt, model=model)
+    return _parse_json_with_thought(raw)
+async def get_first_impressions(file_tree: list[str]) -> str:
+    """Get a quick analysis of the repository structure for logging."""
+    tree_str = "\n".join(file_tree[:100]) # Cap for speed
+    
+    prompt = f"""You are an expert software analyst. Look at this file tree and tell me, in one punchy sentence, what you immediately notice about the architecture or technology of this project. Be very specific.
+    
+    FILE TREE:
+    {tree_str}
+    
+    Response format: "I see a [tech/pattern] layout with [specific directory/file] indicating [insight]."
+    """
+    
+    return await _call_llm(prompt)

@@ -367,15 +367,45 @@ body {
   border: 1px solid #e2e8f0;
 }
 
+@keyframes fadeInLog {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 .log-entry {
   color: #64748b;
   margin-bottom: 0.25rem;
   line-height: 1.4;
+  animation: fadeInLog 0.3s ease-out forwards;
+}
+
+.thought-block {
+  border-left: 2px solid #6366f1;
+  padding-left: 1rem;
+  margin: 0.5rem 0;
+  background: #f8fafc;
+  border-radius: 4px;
 }
 
 .log-timestamp {
   color: #ef444499;
   margin-right: 0.5rem;
+  font-weight: bold;
+}
+
+.thinking-dot {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ef4444;
+  margin-left: 2px;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
 }
 
 /* --- Status Footer --- */

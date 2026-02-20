@@ -8,7 +8,15 @@ venv/
 
 # Backend data
 backend/data/*.db
+backend/service_account.json
 backend/.env
+
+# Metabase artifacts (downloaded/runtime)
+backend/metabase*.jar
+backend/metabase.db*
+backend/plugins/*.jar
+backend/plugins/*.db*
+backend/mb_*.txt
 
 # Node
 node_modules/

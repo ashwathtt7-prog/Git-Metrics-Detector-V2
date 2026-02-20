@@ -18,6 +18,7 @@ export interface Metric {
   suggested_source?: string;
   display_order: number;
   created_at: string;
+  entries?: MetricEntry[];
 }
 
 export interface WorkspaceDetail {

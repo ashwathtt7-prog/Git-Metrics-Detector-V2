@@ -29,7 +29,6 @@ export default function MetricCard({ metric }: Props) {
         <p className="metric-description">{metric.description}</p>
       )}
       <div className="metric-meta">
-        <span className="data-type">Type: {metric.data_type}</span>
         {metric.suggested_source && (
           <p className="suggested-source">
             <strong>Source:</strong> {metric.suggested_source}
@@ -50,6 +49,22 @@ export default function MetricCard({ metric }: Props) {
           </div>
         )}
       </div>
+
+      {metric.entries && metric.entries.length > 0 && (
+        <div style={{ marginTop: '1.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '1rem' }}>
+          <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: '1rem' }}>{metric.entries[0].value}</span>
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>
+              {new Date(metric.entries[0].recorded_at).toLocaleDateString()}
+            </span>
+          </div>
+          <p style={{ fontSize: '0.75rem', fontStyle: 'italic', color: '#64748b', marginTop: '0.2rem' }}>
+            Initial analysis estimate
+          </p>
+        </div>
+      )}
+
+
     </div>
   );
 }

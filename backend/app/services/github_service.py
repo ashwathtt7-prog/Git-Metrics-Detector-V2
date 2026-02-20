@@ -39,35 +39,114 @@ def _headers(token: Optional[str]) -> dict:
 async def list_user_repos(token: str) -> list[dict]:
     """Fetch repositories accessible by the given GitHub token."""
     repos = []
-    page = 1
+    MAX_PAGES = 10
+    
+    masked_token = f"{token[:4]}...{token[-4:]}" if token and len(token) > 8 else "None"
+    msg = f"[GitHub] Listing repos for token: {masked_token}\n"
+    print(msg)
+    with open("gh_debug.log", "a") as f:
+        f.write(msg)
+    
+    # Strategy 1: Explicit affiliation
+    # This covers owned, collab, and org repos
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        while True:
-            resp = await client.get(
-                f"{GITHUB_API}/user/repos",
-                headers=_headers(token),
-                params={
-                    "per_page": 100,
-                    "page": page,
-                    "sort": "updated",
-                    "direction": "desc",
-                    "type": "all",
-                },
-            )
-            resp.raise_for_status()
-            batch = resp.json()
-            if not batch:
+        page = 1
+        while page <= MAX_PAGES:
+            try:
+                resp = await client.get(
+                    f"{GITHUB_API}/user/repos",
+                    headers=_headers(token),
+                    params={
+                        "per_page": 100,
+                        "page": page,
+                        "sort": "updated",
+                        "direction": "desc",
+                        "visibility": "all",
+                        "affiliation": "owner,collaborator,organization_member",
+                    },
+                )
+                if resp.status_code != 200:
+                    msg = f"[GitHub] Strategy 1 failed: {resp.status_code} - {resp.text[:100]}\n"
+                    print(msg)
+                    with open("gh_debug.log", "a") as f: f.write(msg)
+                    break
+                    
+                batch = resp.json()
+                print(f"[GitHub] Strategy 1 Page {page}: Fetched {len(batch)} repos")
+                
+                if not batch:
+                    break
+                    
+                for r in batch:
+                    # Deduplicate
+                    if not any(existing['html_url'] == r['html_url'] for existing in repos):
+                        repos.append({
+                            "full_name": r["full_name"],
+                            "html_url": r["html_url"],
+                            "description": r.get("description") or "",
+                            "private": r["private"],
+                            "updated_at": r["updated_at"],
+                        })
+                
+                if len(batch) < 100:
+                    break
+                page += 1
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                print(f"Error fetching repos (Strategy 1) page {page}: {e}")
                 break
-            for r in batch:
-                repos.append({
-                    "full_name": r["full_name"],
-                    "html_url": r["html_url"],
-                    "description": r.get("description") or "",
-                    "private": r["private"],
-                    "updated_at": r["updated_at"],
-                })
-            page += 1
-            if len(batch) < 100:
-                break
+
+    # Strategy 2: Fallback to type='all' if we have very experienced issues or few repos
+    # Sometimes 'affiliation' misses things if scopes are weird.
+    if len(repos) < 5:
+        msg = f"[GitHub] Few repos found ({len(repos)}), trying Strategy 2 (type='all')...\n"
+        print(msg)
+        with open("gh_debug.log", "a") as f: f.write(msg)
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            page = 1
+            while page <= MAX_PAGES:
+                try:
+                    print(f"[GitHub] Trying Strategy 2 Page {page}...")
+                    resp = await client.get(
+                        f"{GITHUB_API}/user/repos",
+                        headers=_headers(token),
+                        params={
+                            "per_page": 100,
+                            "page": page,
+                            "sort": "updated",
+                            "direction": "desc",
+                            "type": "all",
+                        },
+                    )
+                    if resp.status_code != 200:
+                        print(f"[GitHub] Strategy 2 failed: {resp.status_code} - {resp.text[:100]}")
+                        break
+
+                    batch = resp.json()
+                    print(f"[GitHub] Strategy 2 Page {page}: Fetched {len(batch)} repos")
+                    if not batch:
+                        break
+
+                    for r in batch:
+                        if not any(existing['html_url'] == r['html_url'] for existing in repos):
+                            repos.append({
+                                "full_name": r["full_name"],
+                                "html_url": r["html_url"],
+                                "description": r.get("description") or "",
+                                "private": r["private"],
+                                "updated_at": r["updated_at"],
+                            })
+                    
+                    if len(batch) < 100:
+                        break
+                    page += 1
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    print(f"Error fetching repos (Strategy 2) page {page}: {e}")
+                    break
+                
     return repos
 
 

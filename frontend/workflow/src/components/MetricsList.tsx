@@ -12,7 +12,7 @@ export default function MetricsList({ metrics }: Props) {
 
   return (
     <div className="metrics-section">
-      <h2>Discovered Metrics ({metrics.length})</h2>
+
       <div className="metrics-grid">
         {metrics.map((m) => (
           <MetricCard key={m.id} metric={m} />

@@ -46,16 +46,32 @@ async def get_workspace(workspace_id: str, session: AsyncSession = Depends(get_s
     result = await session.execute(
         select(Metric).where(Metric.workspace_id == workspace_id).order_by(Metric.display_order)
     )
-    metrics = [
-        MetricResponse(
-            id=m.id, workspace_id=m.workspace_id, name=m.name,
-            description=m.description, category=m.category, data_type=m.data_type,
-            suggested_source=m.suggested_source, display_order=m.display_order,
-            created_at=m.created_at, source_table=m.source_table,
-            source_platform=m.source_platform,
+    db_metrics = result.scalars().all()
+    metrics = []
+    for m in db_metrics:
+        # Fetch entries for this metric
+        entries_result = await session.execute(
+            select(MetricEntry)
+            .where(MetricEntry.metric_id == m.id)
+            .order_by(MetricEntry.recorded_at.desc())
         )
-        for m in result.scalars().all()
-    ]
+        entries = [
+            MetricEntryResponse(
+                id=e.id, metric_id=e.metric_id, value=e.value,
+                recorded_at=e.recorded_at, notes=e.notes
+            )
+            for e in entries_result.scalars().all()
+        ]
+        
+        metrics.append(
+            MetricResponse(
+                id=m.id, workspace_id=m.workspace_id, name=m.name,
+                description=m.description, category=m.category, data_type=m.data_type,
+                suggested_source=m.suggested_source, display_order=m.display_order,
+                created_at=m.created_at, source_table=m.source_table,
+                source_platform=m.source_platform, entries=entries
+            )
+        )
 
     return WorkspaceDetailResponse(
         id=ws.id, name=ws.name, repo_url=ws.repo_url,

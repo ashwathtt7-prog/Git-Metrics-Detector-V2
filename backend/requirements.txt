@@ -6,8 +6,10 @@ httpx
 python-dotenv
 pydantic-settings
 
+
 # LLM providers (install only what you need)
-google-genai     # for LLM_PROVIDER=gemini
+google-genai     # for LLM_PROVIDER=gemini (API Key)
+google-cloud-aiplatform # for LLM_PROVIDER=gemini (Service Account)
 openai           # for LLM_PROVIDER=openai
 anthropic        # for LLM_PROVIDER=anthropic
 # Ollama uses httpx (already included) — no extra package needed

@@ -27,6 +27,15 @@ export interface Metric {
   source_platform?: string;
   display_order: number;
   created_at: string;
+  entries?: MetricEntry[];
+}
+
+export interface MetricEntry {
+  id: string;
+  metric_id: string;
+  value: string;
+  recorded_at: string;
+  notes?: string;
 }
 
 export interface JobMetrics {

@@ -32,7 +32,7 @@ class LLMProviderChain:
         """Return the minimum context across all available providers."""
         return min(p.config().max_context_tokens for p in self._available)
 
-    async def generate(self, prompt: str, temperature: float = 0.1) -> str:
+    async def generate(self, prompt: str, temperature: float = 0.1, model_override: str | None = None) -> str:
         """Try providers in order starting from preferred. On failure, fall through."""
         errors = []
         n = len(self._available)
@@ -50,7 +50,7 @@ class LLMProviderChain:
                         f"(attempt {attempt + 1}/{MAX_RETRIES_PER_PROVIDER}, "
                         f"~{est_tokens} input tokens)"
                     )
-                    result = await provider.generate(prompt, temperature)
+                    result = await provider.generate(prompt, temperature, model_override=model_override)
                     self._preferred_index = idx
                     logger.info(f"[LLM] Success with {cfg.name}")
                     return result

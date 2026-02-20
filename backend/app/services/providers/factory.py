@@ -23,12 +23,14 @@ def get_provider() -> LLMProvider:
     provider_name = settings.llm_provider.lower().strip()
 
     if provider_name == "gemini":
-        if not settings.gemini_api_key:
-            raise ValueError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini")
+        if not settings.gemini_api_key and not settings.gemini_service_account_file:
+            raise ValueError("Either GEMINI_API_KEY or GEMINI_SERVICE_ACCOUNT_FILE is required when LLM_PROVIDER=gemini")
+        
         from .gemini_provider import GeminiProvider
         _provider_instance = GeminiProvider(
             api_key=settings.gemini_api_key,
             model=settings.gemini_model,
+            service_account_file=settings.gemini_service_account_file
         )
 
     elif provider_name == "openai":

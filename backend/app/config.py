@@ -43,9 +43,12 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-
+        extra = "ignore" # Ignore extra env vars
 
 settings = Settings()
+print(f"[Config] Loaded settings. Provider: {settings.llm_provider}")
+print(f"[Config] Gemini Service Account: {settings.gemini_service_account_file}")
+print(f"[Config] Gemini API Key present: {bool(settings.gemini_api_key)}")
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 DATA_DIR.mkdir(exist_ok=True)

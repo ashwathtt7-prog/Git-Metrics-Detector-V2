@@ -15,7 +15,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function MetricColumn({ metric }: Props) {
-  const [entries, setEntries] = useState<MetricEntry[]>([]);
+  const [entries, setEntries] = useState<MetricEntry[]>(metric.entries || []);
   const [newValue, setNewValue] = useState('');
   const [newNotes, setNewNotes] = useState('');
   const [showAdd, setShowAdd] = useState(false);
@@ -23,10 +23,14 @@ export default function MetricColumn({ metric }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getMetricEntries(metric.id).then(setEntries).catch((e) => {
-      setError(e instanceof Error ? e.message : 'Failed to load entries');
-    });
-  }, [metric.id]);
+    if (!metric.entries || metric.entries.length === 0) {
+      getMetricEntries(metric.id).then(setEntries).catch((e) => {
+        setError(e instanceof Error ? e.message : 'Failed to load entries');
+      });
+    } else {
+      setEntries(metric.entries);
+    }
+  }, [metric.id, metric.entries]);
 
   const handleAdd = async () => {
     if (!newValue.trim()) return;
@@ -62,7 +66,6 @@ export default function MetricColumn({ metric }: Props) {
       )}
 
       <div className="column-meta">
-        <span className="col-type">Type: {metric.data_type}</span>
         {metric.suggested_source && (
           <p className="col-source">Source: {metric.suggested_source}</p>
         )}
@@ -71,18 +74,21 @@ export default function MetricColumn({ metric }: Props) {
       {error && <div className="error-message" style={{ color: '#dc2626', fontSize: '0.85rem', margin: '0.5rem 0' }}>{error}</div>}
 
       <div className="column-entries">
-        {entries.length === 0 && !showAdd && !error && (
-          <p className="no-entries">No data yet</p>
-        )}
-        {entries.map((e) => (
-          <div key={e.id} className="entry-item">
-            <span className="entry-value">{e.value}</span>
-            <span className="entry-date">
-              {new Date(e.recorded_at).toLocaleDateString()}
-            </span>
-            {e.notes && <span className="entry-notes">{e.notes}</span>}
+        {entries.length > 0 ? (
+          <div className="latest-entry-highlight" style={{ marginTop: '1rem', borderTop: '1px solid #f1f5f9', paddingTop: '1rem' }}>
+            <div style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span>{entries[0].value}</span>
+              <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>
+                {new Date(entries[0].recorded_at).toLocaleDateString()}
+              </span>
+            </div>
+            <p style={{ fontSize: '0.75rem', fontStyle: 'italic', color: '#64748b', marginTop: '0.2rem' }}>
+              Initial analysis estimate
+            </p>
           </div>
-        ))}
+        ) : (
+          !showAdd && !error && <p className="no-entries">No data yet</p>
+        )}
       </div>
 
       {showAdd ? (

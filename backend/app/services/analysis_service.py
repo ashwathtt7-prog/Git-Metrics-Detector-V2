@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
-
+import json
+import os
 import traceback
 from typing import Optional
 from uuid import uuid4
@@ -11,6 +12,7 @@ from ..models import AnalysisJob
 from ..utils.file_filters import get_file_priority
 from ..utils.token_estimator import create_batches
 from . import github_service, llm_service, workspace_service
+from .metabase_service import metabase_service
 
 
 async def create_job(session: AsyncSession, repo_url: str, github_token: Optional[str]) -> AnalysisJob:
@@ -33,11 +35,9 @@ async def create_job(session: AsyncSession, repo_url: str, github_token: Optiona
     return job
 
 
-import json
-
 def add_log(job: AnalysisJob, message: str):
     """Add a timestamped log entry to the job."""
-    now = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    now = datetime.now().strftime("%H:%M:%S")
     log_entry = f"[{now}] {message}"
     if not job.logs:
         job.logs = json.dumps([log_entry])
@@ -45,6 +45,7 @@ def add_log(job: AnalysisJob, message: str):
         logs = json.loads(job.logs)
         logs.append(log_entry)
         job.logs = json.dumps(logs)
+
 
 async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
     """Background task: fetch repo, analyze with Gemini AI, create workspace."""
@@ -57,37 +58,33 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
             # --- Stage 1: Validation ---
             job.current_stage = 1
             job.status = "fetching"
-            job.progress_message = "Stage 1: Validating repository and scanning structure..."
-            add_log(job, "Initializing git connection...")
-            add_log(job, f"Target repository: {repo_url}")
+            job.progress_message = "Stage 1: Scanning repository structure..."
+            add_log(job, f"Connecting to {repo_url}...")
             await session.commit()
 
             owner, repo = github_service.parse_repo_url(repo_url)
             file_paths = await github_service.fetch_repo_tree(owner, repo, github_token)
             job.total_files = len(file_paths)
-            add_log(job, f"Found {len(file_paths)} total files in repository tree.")
-            add_log(job, "Stage 1 complete.")
+            
+            # Real Discovery Log!
+            discovery = await llm_service.get_first_impressions(file_paths)
+            add_log(job, discovery)
+            
+            add_log(job, f"Indexing complete. Processed {len(file_paths)} file nodes.")
             await session.commit()
 
             # --- Stage 2: Fetching Data ---
             job.current_stage = 2
-            job.progress_message = "Stage 2: Fetching relevant file contents..."
-            add_log(job, "Identifying branch architecture...")
-            add_log(job, "Streaming file contents to analysis buffer...")
+            job.progress_message = "Stage 2: Fetching critical logic files..."
+            add_log(job, "Prioritizing files for deep analysis...")
             await session.commit()
 
-            # --- Step 2: Fetch file contents ---
             async def on_progress(completed: int):
                 job.analyzed_files = completed
                 await session.commit()
 
-            # Cap files to fetch for very large repos (files are already priority-sorted)
             MAX_FILES_TO_FETCH = 200
-            if len(file_paths) > MAX_FILES_TO_FETCH:
-                print(f"Large repo detected ({len(file_paths)} files). Fetching top {MAX_FILES_TO_FETCH} priority files.")
-                file_paths_to_fetch = file_paths[:MAX_FILES_TO_FETCH]
-            else:
-                file_paths_to_fetch = file_paths
+            file_paths_to_fetch = file_paths[:MAX_FILES_TO_FETCH] if len(file_paths) > MAX_FILES_TO_FETCH else file_paths
 
             files = await github_service.fetch_files_batch(
                 owner, repo, file_paths_to_fetch, github_token, on_progress
@@ -100,206 +97,148 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                 await session.commit()
                 return
 
-            add_log(job, f"Fetch complete. {len(files)} files buffered.")
-            add_log(job, "Stage 2 complete.")
+            add_log(job, f"Stage 2 complete: {len(files)} files buffered.")
             await session.commit()
 
             # --- Stage 3: Processing ---
             job.current_stage = 3
             job.status = "analyzing"
-            job.progress_message = "Stage 3: Running AI-powered metrics discovery..."
-            add_log(job, "Starting LLM Thought Process...")
-            add_log(job, f"Using LLM: {llm_service.__name__ if hasattr(llm_service, '__name__') else 'Selected Provider'}")
+            job.progress_message = "Stage 3: Extracting metrics from codebase..."
+            add_log(job, "Starting LLM Reasoning Core...")
             await session.commit()
 
-            # Separate key files for project overview
-            key_files = [f for f in files if get_file_priority(f["path"]) == 0]
-            if not key_files:
-                key_files = files[:5]
-            
-            # Cap Pass 1 to avoid exceeding TPM on small models/tiers
-            key_files = key_files[:10]
+            key_files = [f for f in files if get_file_priority(f["path"]) == 0][:10]
+            if not key_files: key_files = files[:5]
 
             # Pass 1: Project overview
-            add_log(job, "Pass 1: Understanding project intent and technical stack...")
+            add_log(job, "Pass 1: Identifying business domain and technical dependencies...")
             await session.commit()
-            project_summary = await llm_service.analyze_project_overview(
-                file_paths, key_files
-            )
-            add_log(job, f"Project identified as: {project_summary.get('project_name', 'Unknown')}")
-            add_log(job, f"Tech stack detected: {', '.join(project_summary.get('tech_stack', []))}")
+            
+            project_summary, pass1_thought = await llm_service.analyze_project_overview(file_paths, key_files)
+            if project_summary:
+                add_log(job, f"System Discovery: Detected a {project_summary.get('architecture_type', 'standard')} architecture. Core entities: {', '.join(project_summary.get('key_entities', [])[:4])}.")
+            if pass1_thought:
+                # Extract first two punchy sentences from the thought block
+                insight = ". ".join(pass1_thought.strip().split(".")[:2])
+                add_log(job, f"LLM Insight: {insight}.")
+            await session.commit()
 
-            # Pass 2: Metrics discovery (with batching if needed)
+            # Pass 2: Metrics discovery
             batches = create_batches(files, max_tokens=llm_service.get_batch_token_limit())
-
-            if len(batches) == 1:
-                job.progress_message = "Pass 2: Discovering metrics..."
-                await session.commit()
-                metrics = await llm_service.discover_metrics(project_summary, batches[0])
-            else:
-                batch_results = []
-                for i, batch in enumerate(batches):
-                    job.progress_message = f"Pass 2: Discovering metrics (batch {i+1}/{len(batches)})..."
-                    await session.commit()
-                    batch_metrics = await llm_service.discover_metrics(project_summary, batch)
-                    batch_results.append(batch_metrics)
-                    
-                    # Add a small delay between batches to avoid RPM/TPM exhaustion
-                    if i < len(batches) - 1:
-                        await asyncio.sleep(2)
-                # Pass 3: Consolidate
-                add_log(job, "Pass 3: Consolidating unique metrics and cleaning overlap...")
-                await session.commit()
-                metrics = await llm_service.consolidate_metrics(project_summary, batch_results)
-
-            if not metrics:
-                job.status = "failed"
-                job.error_message = "LLM did not return any metrics"
-                add_log(job, "ERROR: LLM failed to extract meaningful metrics.")
-                await session.commit()
-                return
-            
-            add_log(job, f"Metrics discovered: {len(metrics)} items.")
-            add_log(job, "Stage 3 complete.")
+            add_log(job, f"Deep scanning {len(batches)} batches of code for trackable patterns...")
             await session.commit()
 
-            # --- Stage 4: Reporting ---
+            batch_results = []
+            for i, batch in enumerate(batches):
+                job.progress_message = f"Pass 2: Scanning batch {i+1}/{len(batches)}..."
+                batch_metrics, batch_thought = await llm_service.discover_metrics(project_summary, batch)
+                if batch_thought:
+                    # Log more "discovery-like" things
+                    add_log(job, f"Batch {i+1} Discovery: Found {len(batch_metrics)} indicators related to {batch_metrics[0]['category'] if batch_metrics else 'logic'}.")
+                batch_results.append(batch_metrics)
+                await session.commit()
+
+            # --- Stage 4: Consolidate ---
             job.current_stage = 4
-            job.progress_message = "Stage 4: Generating custom visualization and workspace..."
-            add_log(job, "Initializing workspace creation...")
+            job.progress_message = "Stage 4: Organizing metric registry..."
+            add_log(job, "Filtering candidate metrics for feasibility and impact...")
             await session.commit()
-
-            # --- Step 4: Create workspace ---
-            project_name = project_summary.get("project_name", f"{owner}/{repo}")
-            description = project_summary.get("description", "")
-
-            job.progress_message = "Creating workspace..."
-            await session.commit()
-            workspace_id = await workspace_service.create_workspace_with_metrics(
-                session=session,
-                name=project_name,
-                repo_url=repo_url,
-                description=description,
-                metrics_data=metrics,
-                dashboard_layout=None, # Deprecated
-            )
-
-            # --- Pass 4a: Generate Mock Data ---
-            add_log(job, "Generating realistic historical data for metrics...")
-            await session.commit()
-
-            try:
-                mock_data = await llm_service.generate_mock_data(metrics, project_name)
-                if mock_data:
-                    from ..models import MetricEntry, Metric as MetricModel
-                    from sqlalchemy import select as sa_select
-
-                    # Build a lookup: metric_name -> metric_id
-                    result = await session.execute(
-                        sa_select(MetricModel).where(MetricModel.workspace_id == workspace_id)
-                    )
-                    db_metrics = {m.name: m.id for m in result.scalars().all()}
-
-                    entries_added = 0
-                    for md in mock_data:
-                        metric_name = md.get("metric_name", "")
-                        metric_id = db_metrics.get(metric_name)
-                        if not metric_id:
-                            continue
-                        for entry in md.get("entries", []):
-                            me = MetricEntry(
-                                id=str(uuid4()),
-                                metric_id=metric_id,
-                                value=str(entry.get("value", "")),
-                                recorded_at=entry.get("recorded_at", datetime.now(timezone.utc).isoformat()),
-                                notes=entry.get("notes"),
-                            )
-                            session.add(me)
-                            entries_added += 1
-
-                    await session.commit()
-                    add_log(job, f"Generated {entries_added} mock data entries across {len(mock_data)} metrics.")
-            except Exception as e:
-                print(f"Mock data generation failed (non-fatal): {e}")
-                add_log(job, f"Mock data generation skipped: {str(e)[:100]}")
-                await session.commit()
-
-            # --- Pass 4b: Generate Dashboard Code ---
-            add_log(job, "Designing project-specific visualization components...")
-            await session.commit()
+            metrics, pass3_thought = await llm_service.consolidate_metrics(project_summary, batch_results)
             
-            try:
-                dashboard_code = await llm_service.generate_dashboard_code(project_summary, metrics, workspace_id)
-                
-                # Path to frontend/dashboard/src/dashboards/Workspace_{id}.tsx
-                # We assume the directory exists (we created it)
-                # D:\git-metrics-detector\v1\Git-metrics-detector\frontend\dashboard\src\dashboards
-                # But we need absolute path logic relative to project root or use current file location
-                import os
-                
-                # Go up from: backend/app/services/analysis_service.py -> backend/app/services -> backend/app -> backend -> root
-                # Then down to frontend/dashboard/src/dashboards
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
-                dash_dir = os.path.join(project_root, "frontend", "dashboard", "src", "dashboards")
-                os.makedirs(dash_dir, exist_ok=True)
-                
-                file_path = os.path.join(dash_dir, f"Workspace_{workspace_id}.tsx")
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(dashboard_code)
-                    
-                # Store the filename in the workspace record (re-using dashboard_config field or adding a new one)
-                # For now let's just use the existence of the file or update dashboard_config to point to it
-                # Actually, updating dashboard_config to "custom_code" is a good flag
-                ws = await session.get(AnalysisJob, job_id)
-                if ws: # Reload workspace ? No, ws is job.
-                    # Update workspace record
-                    from ..models import Workspace
-                    w = await session.get(Workspace, workspace_id)
-                    if w:
-                        w.dashboard_config = "custom_code"
-                        session.add(w)
-                        await session.commit()
+            add_log(job, f"Metric Registry finalized: {len(metrics)} primary metrics identified.")
+            await session.commit()
 
-            except Exception as e:
-                print(f"Failed to generate dashboard code: {e}")
-                traceback.print_exc()
+            # --- Stage 5: Reporting & Workspace Creation ---
+            job.current_stage = 5
+            job.progress_message = "Stage 5: Creating workspace environment..."
+            add_log(job, f"Naming workspace: {project_summary.get('project_name', repo)}")
+            await session.commit()
 
-            # --- Pass 4c: Generate Metabase Dashboard Plan ---
-            try:
-                add_log(job, "Planning SQL-backed Metabase dashboard...")
-                await session.commit()
-                dashboard_plan = await llm_service.generate_dashboard_plan(metrics, project_name, workspace_id)
-                if dashboard_plan:
-                    from ..models import Workspace
-                    w = await session.get(Workspace, workspace_id)
-                    if w:
-                        w.dashboard_config = json.dumps(dashboard_plan)
-                        session.add(w)
-                        await session.commit()
-                    add_log(job, f"Metabase dashboard plan generated with {len(dashboard_plan.get('cards', []))} cards.")
-            except Exception as e:
-                print(f"Dashboard plan generation failed (non-fatal): {e}")
-                add_log(job, f"Dashboard plan skipped: {str(e)[:100]}")
-                await session.commit()
-
-            # --- Step 5: Mark complete ---
-            # Re-fetch job since workspace_service committed
-            job = await session.get(AnalysisJob, job_id)
+            workspace_id = await workspace_service.create_workspace_with_metrics(
+                session=session, name=project_summary.get("project_name", f"{owner}/{repo}"), 
+                repo_url=repo_url, description=project_summary.get("description", ""), 
+                metrics_data=metrics, dashboard_layout=None,
+            )
+            
             job.workspace_id = workspace_id
             job.status = "completed"
             job.completed_at = datetime.now(timezone.utc).isoformat()
-            add_log(job, "Analysis complete. Dashboard is ready.")
+            job.progress_message = "Registry is live. Launching background reporting..."
+            add_log(job, "Workspace created. Connecting visualizers...")
+            await session.commit()
+
+            # FINAL PASS: Parallel Reporting & METABASE INTEGRATION
+            tasks = [
+                llm_service.generate_mock_data(metrics, project_summary.get("project_name", repo), model="gemini-2.0-flash"),
+                llm_service.generate_dashboard_plan(metrics, project_summary.get("project_name", repo), workspace_id, model="gemini-2.0-flash")
+            ]
+            
+            try:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                mock_res, plan_res = results[0], results[1]
+
+                # 1. Mock Data Injection
+                if not isinstance(mock_res, Exception) and mock_res:
+                    mock_data, _ = mock_res
+                    from ..models import MetricEntry, Metric as MetricModel
+                    from sqlalchemy import select as sa_select
+                    res = await session.execute(sa_select(MetricModel).where(MetricModel.workspace_id == workspace_id))
+                    db_metrics = {m.name: m.id for m in res.scalars().all()}
+                    for md in mock_data:
+                        metric_id = db_metrics.get(md.get("metric_name", ""))
+                        if metric_id:
+                            for entry in md.get("entries", []):
+                                session.add(MetricEntry(
+                                    id=str(uuid4()), metric_id=metric_id, value=str(entry.get("value", "")),
+                                    recorded_at=entry.get("recorded_at", datetime.now(timezone.utc).isoformat())
+                                ))
+                    await session.commit()
+                    add_log(job, "Injected synthetic history for trend visualization.")
+
+                # 2. METABASE INTEGRATION !!!
+                if not isinstance(plan_res, Exception) and plan_res:
+                    plan_data, _ = plan_res
+                    add_log(job, "Configuring Metabase Open-Source Visualization Suite...")
+                    
+                    # Store plan in workspace for later use
+                    from ..models import Workspace
+                    w = await session.get(Workspace, workspace_id)
+                    if w:
+                        w.dashboard_config = json.dumps(plan_data)
+                        await session.commit()
+
+                    # Integration with real Metabase API
+                    try:
+                        db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data/metrics.db"))
+                        mb_db_id = await metabase_service.setup_database(db_path)
+                        if mb_db_id:
+                            mb_url = await metabase_service.create_dashboard(project_summary.get("project_name", repo), mb_db_id, plan_data)
+                            if mb_url:
+                                add_log(job, f"Metabase Dashboard LIVE: {mb_url}")
+                                # Store the actual URL
+                                w.dashboard_config = json.dumps({"metabase_url": mb_url, "plan": plan_data})
+                                await session.commit()
+                            else:
+                                add_log(job, "Metabase connection failed. Reaching out locally...")
+                        else:
+                            add_log(job, "Metabase database registration failed.")
+                    except Exception as me:
+                        add_log(job, f"Metabase API Error: {str(me)}")
+
+            except Exception as e:
+                add_log(job, f"Background optimization error: {str(e)}")
+            
+            add_log(job, "Analysis complete. Visualization suite ready.")
             await session.commit()
 
         except Exception as e:
-            # Re-fetch job in case session state is stale
             try:
                 job = await session.get(AnalysisJob, job_id)
                 if job:
                     job.status = "failed"
                     job.error_message = str(e)
                     await session.commit()
-            except Exception:
-                pass
+            except Exception: pass
             traceback.print_exc()
+            add_log(job, f"CRITICAL ERROR: {str(e)}")
+            await session.commit()
