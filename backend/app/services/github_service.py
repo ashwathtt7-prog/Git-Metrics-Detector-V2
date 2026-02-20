@@ -36,6 +36,41 @@ def _headers(token: Optional[str]) -> dict:
     return h
 
 
+async def list_user_repos(token: str) -> list[dict]:
+    """Fetch repositories accessible by the given GitHub token."""
+    repos = []
+    page = 1
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        while True:
+            resp = await client.get(
+                f"{GITHUB_API}/user/repos",
+                headers=_headers(token),
+                params={
+                    "per_page": 100,
+                    "page": page,
+                    "sort": "updated",
+                    "direction": "desc",
+                    "type": "all",
+                },
+            )
+            resp.raise_for_status()
+            batch = resp.json()
+            if not batch:
+                break
+            for r in batch:
+                repos.append({
+                    "full_name": r["full_name"],
+                    "html_url": r["html_url"],
+                    "description": r.get("description") or "",
+                    "private": r["private"],
+                    "updated_at": r["updated_at"],
+                })
+            page += 1
+            if len(batch) < 100:
+                break
+    return repos
+
+
 async def fetch_repo_tree(owner: str, repo: str, token: Optional[str] = None) -> list:
     """Fetch the full file tree of a repo using the Git Trees API."""
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:

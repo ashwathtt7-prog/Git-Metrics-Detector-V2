@@ -8,7 +8,8 @@ class Settings(BaseSettings):
 
     # Gemini
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_service_account_file: str = ""
 
     # Ollama (local — no API key needed)
     ollama_base_url: str = "http://localhost:11434"
@@ -22,16 +23,22 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
 
+    # Groq
+    groq_api_key: str = ""
+
+    # OpenRouter
+    openrouter_api_key: str = ""
+
     # GitHub
     github_token: str = ""
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./data/metrics.db"
 
-    # Apache Superset
-    superset_url: str = "http://localhost:8088"
-    superset_username: str = "admin"
-    superset_password: str = "admin"
+    # Metabase
+    metabase_url: str = "http://localhost:3003"
+    metabase_username: str = ""
+    metabase_password: str = ""
 
     class Config:
         env_file = ".env"

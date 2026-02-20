@@ -49,6 +49,8 @@ class Metric(Base):
     category = Column(Text)
     data_type = Column(Text, nullable=False, default="number")
     suggested_source = Column(Text)
+    source_table = Column(Text)
+    source_platform = Column(Text)
     display_order = Column(Integer, nullable=False, default=0)
     created_at = Column(Text, nullable=False)
 

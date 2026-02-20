@@ -7,6 +7,7 @@ from ..config import settings
 from ..schemas import AnalyzeRequest, JobResponse, JobMetricsResponse, MetricResponse
 from ..models import AnalysisJob, Metric
 from ..services.analysis_service import create_job, run_analysis
+from ..services.github_service import list_user_repos
 
 router = APIRouter()
 
@@ -32,6 +33,19 @@ async def start_analysis(
     job = await create_job(session, request.repo_url, token)
     background_tasks.add_task(run_analysis, job.id, request.repo_url, token)
     return _job_response(job)
+
+
+@router.get("/repos")
+async def get_user_repos(token: str = ""):
+    """List GitHub repos accessible with the given token."""
+    effective_token = token or settings.github_token
+    if not effective_token:
+        raise HTTPException(status_code=400, detail="GitHub token required")
+    try:
+        repos = await list_user_repos(effective_token)
+        return repos
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"GitHub API error: {str(e)}")
 
 
 @router.get("/jobs", response_model=List[JobResponse])
@@ -70,6 +84,7 @@ async def get_job_metrics(job_id: str, session: AsyncSession = Depends(get_sessi
                 description=m.description, category=m.category, data_type=m.data_type,
                 suggested_source=m.suggested_source, display_order=m.display_order,
                 created_at=m.created_at,
+                source_table=m.source_table, source_platform=m.source_platform,
             )
             for m in result.scalars().all()
         ]

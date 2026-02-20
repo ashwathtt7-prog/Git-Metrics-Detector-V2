@@ -40,6 +40,8 @@ async def create_workspace_with_metrics(
             category=m.get("category"),
             data_type=m.get("data_type", "number"),
             suggested_source=m.get("suggested_source"),
+            source_table=m.get("source_table"),
+            source_platform=m.get("source_platform"),
             display_order=i,
             created_at=now,
         )

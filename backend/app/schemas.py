@@ -34,6 +34,8 @@ class MetricResponse(BaseModel):
     category: Optional[str] = None
     data_type: str = "number"
     suggested_source: Optional[str] = None
+    source_table: Optional[str] = None
+    source_platform: Optional[str] = None
     display_order: int = 0
     created_at: str
 

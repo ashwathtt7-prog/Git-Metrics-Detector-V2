@@ -51,7 +51,8 @@ async def get_workspace(workspace_id: str, session: AsyncSession = Depends(get_s
             id=m.id, workspace_id=m.workspace_id, name=m.name,
             description=m.description, category=m.category, data_type=m.data_type,
             suggested_source=m.suggested_source, display_order=m.display_order,
-            created_at=m.created_at,
+            created_at=m.created_at, source_table=m.source_table,
+            source_platform=m.source_platform,
         )
         for m in result.scalars().all()
     ]
@@ -84,7 +85,8 @@ async def get_workspace_metrics(workspace_id: str, session: AsyncSession = Depen
             id=m.id, workspace_id=m.workspace_id, name=m.name,
             description=m.description, category=m.category, data_type=m.data_type,
             suggested_source=m.suggested_source, display_order=m.display_order,
-            created_at=m.created_at,
+            created_at=m.created_at, source_table=m.source_table,
+            source_platform=m.source_platform,
         )
         for m in result.scalars().all()
     ]

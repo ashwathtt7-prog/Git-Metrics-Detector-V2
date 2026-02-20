@@ -35,3 +35,17 @@ export async function listJobs(): Promise<Job[]> {
   if (!res.ok) throw new Error('Failed to fetch jobs');
   return res.json();
 }
+
+export interface GitHubRepo {
+  full_name: string;
+  html_url: string;
+  description: string;
+  private: boolean;
+  updated_at: string;
+}
+
+export async function listUserRepos(token: string): Promise<GitHubRepo[]> {
+  const res = await fetch(`${BASE}/repos?token=${encodeURIComponent(token)}`);
+  if (!res.ok) throw new Error('Failed to fetch repos');
+  return res.json();
+}

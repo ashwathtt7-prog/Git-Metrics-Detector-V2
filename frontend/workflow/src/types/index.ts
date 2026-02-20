@@ -23,6 +23,8 @@ export interface Metric {
   category?: string;
   data_type: string;
   suggested_source?: string;
+  source_table?: string;
+  source_platform?: string;
   display_order: number;
   created_at: string;
 }

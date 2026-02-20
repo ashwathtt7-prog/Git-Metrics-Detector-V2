@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { startAnalysis, listJobs } from '../api/workflowApi';
-import type { Job } from '../types';
+import { startAnalysis, listUserRepos } from '../api/workflowApi';
+import type { GitHubRepo } from '../api/workflowApi';
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -9,11 +9,42 @@ export default function HomePage() {
   const [error, setError] = useState('');
   const [externalLink, setExternalLink] = useState('');
   const [selectedRepo, setSelectedRepo] = useState('');
-  const [recentJobs, setRecentJobs] = useState<Job[]>([]);
+  const [repos, setRepos] = useState<GitHubRepo[]>([]);
+  const [reposLoading, setReposLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchRepos = useCallback(() => {
+    const token = localStorage.getItem('github_token') || '';
+    if (token) {
+      setReposLoading(true);
+      listUserRepos(token)
+        .then(setRepos)
+        .catch(console.error)
+        .finally(() => setReposLoading(false));
+    } else {
+      setRepos([]);
+    }
+  }, []);
 
   useEffect(() => {
-    listJobs().then(setRecentJobs).catch(console.error);
-  }, []);
+    fetchRepos();
+    // Debounced listener for token changes from the Sidebar (fires on every keystroke)
+    const onTokenChanged = () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(fetchRepos, 800);
+    };
+    window.addEventListener('github-token-changed', onTokenChanged);
+    // Also listen for cross-tab changes
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'github_token') fetchRepos();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('github-token-changed', onTokenChanged);
+      window.removeEventListener('storage', onStorage);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [fetchRepos]);
 
   const handleAnalyze = async () => {
     const url = externalLink || selectedRepo;
@@ -53,9 +84,11 @@ export default function HomePage() {
             value={selectedRepo}
             onChange={(e) => setSelectedRepo(e.target.value)}
           >
-            <option value="">Select from your list...</option>
-            {recentJobs.map(j => (
-              <option key={j.id} value={j.repo_url}>{j.repo_owner}/{j.repo_name}</option>
+            <option value="">{reposLoading ? 'Loading repos...' : 'Select a repository...'}</option>
+            {repos.map(r => (
+              <option key={r.full_name} value={r.html_url}>
+                {r.full_name}{r.private ? ' (private)' : ''}
+              </option>
             ))}
           </select>
         </div>

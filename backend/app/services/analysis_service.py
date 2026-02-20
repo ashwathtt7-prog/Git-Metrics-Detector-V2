@@ -184,7 +184,47 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                 dashboard_layout=None, # Deprecated
             )
 
-            # --- Pass 4: Generate Dashboard Code ---
+            # --- Pass 4a: Generate Mock Data ---
+            add_log(job, "Generating realistic historical data for metrics...")
+            await session.commit()
+
+            try:
+                mock_data = await llm_service.generate_mock_data(metrics, project_name)
+                if mock_data:
+                    from ..models import MetricEntry, Metric as MetricModel
+                    from sqlalchemy import select as sa_select
+
+                    # Build a lookup: metric_name -> metric_id
+                    result = await session.execute(
+                        sa_select(MetricModel).where(MetricModel.workspace_id == workspace_id)
+                    )
+                    db_metrics = {m.name: m.id for m in result.scalars().all()}
+
+                    entries_added = 0
+                    for md in mock_data:
+                        metric_name = md.get("metric_name", "")
+                        metric_id = db_metrics.get(metric_name)
+                        if not metric_id:
+                            continue
+                        for entry in md.get("entries", []):
+                            me = MetricEntry(
+                                id=str(uuid4()),
+                                metric_id=metric_id,
+                                value=str(entry.get("value", "")),
+                                recorded_at=entry.get("recorded_at", datetime.now(timezone.utc).isoformat()),
+                                notes=entry.get("notes"),
+                            )
+                            session.add(me)
+                            entries_added += 1
+
+                    await session.commit()
+                    add_log(job, f"Generated {entries_added} mock data entries across {len(mock_data)} metrics.")
+            except Exception as e:
+                print(f"Mock data generation failed (non-fatal): {e}")
+                add_log(job, f"Mock data generation skipped: {str(e)[:100]}")
+                await session.commit()
+
+            # --- Pass 4b: Generate Dashboard Code ---
             add_log(job, "Designing project-specific visualization components...")
             await session.commit()
             
@@ -225,6 +265,23 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                 print(f"Failed to generate dashboard code: {e}")
                 traceback.print_exc()
 
+            # --- Pass 4c: Generate Metabase Dashboard Plan ---
+            try:
+                add_log(job, "Planning SQL-backed Metabase dashboard...")
+                await session.commit()
+                dashboard_plan = await llm_service.generate_dashboard_plan(metrics, project_name, workspace_id)
+                if dashboard_plan:
+                    from ..models import Workspace
+                    w = await session.get(Workspace, workspace_id)
+                    if w:
+                        w.dashboard_config = json.dumps(dashboard_plan)
+                        session.add(w)
+                        await session.commit()
+                    add_log(job, f"Metabase dashboard plan generated with {len(dashboard_plan.get('cards', []))} cards.")
+            except Exception as e:
+                print(f"Dashboard plan generation failed (non-fatal): {e}")
+                add_log(job, f"Dashboard plan skipped: {str(e)[:100]}")
+                await session.commit()
 
             # --- Step 5: Mark complete ---
             # Re-fetch job since workspace_service committed

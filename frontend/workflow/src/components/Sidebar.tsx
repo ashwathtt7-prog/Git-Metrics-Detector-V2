@@ -8,6 +8,8 @@ export default function Sidebar() {
 
     useEffect(() => {
         localStorage.setItem('github_token', token);
+        // Dispatch a custom event so HomePage can react immediately (StorageEvent doesn't fire in the same tab)
+        window.dispatchEvent(new CustomEvent('github-token-changed'));
     }, [token]);
 
     useEffect(() => {

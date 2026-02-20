@@ -125,6 +125,8 @@ For each metric, provide:
 - A category (one of: business, engagement, content, performance, growth)
 - The data type (number, percentage, boolean, string)
 - A suggested source: where in the codebase or infrastructure this metric could be measured (reference specific files, database tables, or API endpoints you found in the code)
+- A source_table: the specific database table, API endpoint, or data collection where this metric can be found (e.g., 'users', 'orders', 'api_access_logs', '/api/v1/metrics'). Infer from the codebase.
+- A source_platform: the platform or system where this data lives (e.g., 'PostgreSQL', 'GCP BigQuery', 'Oracle DB', 'MongoDB', 'REST API', 'Application Logs', 'GitHub API'). Infer from the detected tech stack.
 
 Respond in the following JSON format exactly:
 {{
@@ -135,6 +137,8 @@ Respond in the following JSON format exactly:
         "category": "business|engagement|content|performance|growth",
         "data_type": "number|percentage|boolean|string",
         "suggested_source": "string describing where to measure this",
+        "source_table": "string - the specific database table, API endpoint, or data collection",
+        "source_platform": "string - the infrastructure platform (e.g., GCP, AWS, Oracle, PostgreSQL, MongoDB)",
         "estimated_value": "string or number (e.g., '150', '25%', 'Active', 'High') - based on the code analysis (e.g., count routes for API count, count components for component count)"
       }}
   ]
@@ -176,6 +180,8 @@ Respond in the following JSON format exactly:
       "category": "business|engagement|content|performance|growth",
       "data_type": "number|percentage|boolean|string",
       "suggested_source": "string describing where to measure this",
+      "source_table": "string - the specific database table, API endpoint, or data collection",
+      "source_platform": "string - the infrastructure platform (e.g., GCP, AWS, Oracle, PostgreSQL, MongoDB)",
       "estimated_value": "string or number"
     }}
   ]
@@ -190,30 +196,30 @@ async def generate_dashboard_code(project_summary: dict, metrics: list[dict], wo
     """Pass 4: Generate a React component for the dashboard."""
     summary_str = json.dumps(project_summary, indent=2)
     metrics_str = json.dumps(metrics, indent=2)
-    
-    # We strip the ID dashes to make a valid component name if needed, but standardizing as WorkspaceDashboard_{id_clean} is safer.
+
     safe_id = workspace_id.replace("-", "")
 
     prompt = f"""You are an expert React developer specializing in data visualization with Recharts and Tailwind CSS.
-    
+
     Your task is to generate a COMPLETE, self-contained React functional component that serves as a dashboard for a specific software project.
-    
+
     PROJECT CONTEXT:
     {summary_str}
-    
+
     DETECTED METRICS (with estimated values):
     {metrics_str}
-    
+
     REQUIREMENTS:
     1. **Component Name**: The component MUST be named `WorkspaceDashboard` and exported as `default`.
     2. **Props**: The component will receive a single prop `metrics` which is an array of objects: `{{ metric: string; value: number; display_value: string; category: string }}`.
-       - You MUST use this `metrics` prop to populate your charts. 
+       - You MUST use this `metrics` prop to populate your charts.
        - Do NOT hardcode data. Filter the `metrics` array by `metric` name to find the data you need for each chart.
     3. **Libraries**:
        - Use `recharts` for all charts (BarChart, PieChart, LineChart, AreaChart).
-       - Use Tailwind CSS classes for styling (the project has a dark theme background #0f172a / slate-900).
-       - Create beautiful, modern cards with `bg-slate-800 border-slate-700`.
-       - Text should be `text-slate-200` or `text-slate-400`.
+       - Use Tailwind CSS classes for styling (the project has a WHITE background).
+       - Create beautiful, modern cards with `bg-white border border-gray-200 shadow-sm rounded-xl`.
+       - Text should be `text-gray-800` or `text-gray-500`.
+       - Accent color is red (`#ef4444` / `text-red-500` / `bg-red-500`).
     4. **Layout**:
        - Create a masonry-like or grid layout to display the metrics logically.
        - Group related metrics (e.g., "Performance", "Growth", "Content").
@@ -221,18 +227,18 @@ async def generate_dashboard_code(project_summary: dict, metrics: list[dict], wo
     5. **Creativity**:
        - Choose the best visualization for each metric (e.g., Pie for distribution, Bar for comparison).
        - If a metric implies a trend or progress, and you only have a single value, maybe use a Progress bar or a radial bar if possible, or just a nice card.
-    
+
     IMPORTS AVAILABLE:
-    - `import React, { useMemo } from 'react';`
-    - `import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';`
-    - `import { Users, Code, Activity, Server, GitBranch, AlertCircle, CheckCircle } from 'lucide-react';` (You can assume lucide-react is installed).
-    
+    - `import React, {{ useMemo }} from 'react';`
+    - `import {{ BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line }} from 'recharts';`
+    - `import {{ Users, Code, Activity, Server, GitBranch, AlertCircle, CheckCircle }} from 'lucide-react';` (You can assume lucide-react is installed).
+
     IMPORTANT: Return ONLY the raw code string. Do not wrap in markdown blocks. Do not explain your code. Just the React code.
-    
+
     """
 
     raw = await _call_llm(prompt)
-    
+
     # Clean up markdown code blocks if present
     code = raw.strip()
     if code.startswith("```"):
@@ -242,5 +248,117 @@ async def generate_dashboard_code(project_summary: dict, metrics: list[dict], wo
         if lines[-1].startswith("```"):
             lines = lines[:-1]
         code = "\n".join(lines)
-        
+
     return code
+
+
+async def generate_mock_data(metrics: list[dict], workspace_name: str) -> list[dict]:
+    """Generate realistic mock data entries for each metric using the LLM."""
+    metrics_str = json.dumps(metrics, indent=2)
+
+    prompt = f"""You are an expert data analyst. Generate realistic mock data for the following metrics
+belonging to workspace "{workspace_name}".
+
+METRICS:
+{metrics_str}
+
+For each metric, generate between 10 and 30 data entries spanning the last 90 days.
+The data should follow realistic patterns:
+- Numbers should have realistic ranges and trends (gradual growth, seasonal patterns, etc.)
+- Percentages should be between 0 and 100
+- Boolean metrics should have a mix of true/false
+- String metrics should have realistic categorical values
+
+Respond in the following JSON format exactly:
+{{
+  "mock_data": [
+    {{
+      "metric_name": "string (must match a metric name exactly)",
+      "entries": [
+        {{
+          "value": "string representation of the value",
+          "recorded_at": "ISO 8601 date string (e.g., 2026-01-15T10:00:00Z)",
+          "notes": "optional note about this data point"
+        }}
+      ]
+    }}
+  ]
+}}
+
+Make the data look realistic and varied. For growth metrics, show an upward trend.
+For performance metrics, show occasional spikes. Include some data anomalies for realism."""
+
+    raw = await _call_llm(prompt)
+    result = _parse_json_response(raw)
+    return result.get("mock_data", [])
+
+
+async def generate_dashboard_plan(metrics: list[dict], workspace_name: str, workspace_id: str) -> dict:
+    """Ask the LLM to plan a Metabase dashboard: decide chart types and write SQL queries."""
+    metrics_str = json.dumps(metrics, indent=2)
+
+    prompt = f"""You are an expert data analyst and dashboard designer. You need to plan a Metabase dashboard for the workspace "{workspace_name}".
+
+The data is stored in a SQLite database with these tables:
+
+TABLE: metrics
+  - id (TEXT, primary key)
+  - workspace_id (TEXT)
+  - name (TEXT)
+  - description (TEXT)
+  - category (TEXT) -- one of: business, engagement, content, performance, growth
+  - data_type (TEXT) -- one of: number, percentage, boolean, string
+  - suggested_source (TEXT)
+  - source_table (TEXT)
+  - source_platform (TEXT)
+  - display_order (INTEGER)
+  - created_at (TEXT)
+
+TABLE: metric_entries
+  - id (TEXT, primary key)
+  - metric_id (TEXT, foreign key to metrics.id)
+  - value (TEXT) -- the value as a string
+  - recorded_at (TEXT) -- ISO timestamp
+  - notes (TEXT)
+
+The workspace_id for this workspace is: "{workspace_id}"
+
+METRICS FOR THIS WORKSPACE:
+{metrics_str}
+
+Design a dashboard with 5-10 charts. For each chart, decide:
+1. The best visualization type based on what the metric represents
+2. A SQL query that extracts the right data from the tables above
+3. A descriptive title
+
+Available chart types: bar, line, pie, scalar, area, row, table
+
+Respond in the following JSON format exactly:
+{{
+  "dashboard_name": "string - a descriptive name for the dashboard",
+  "description": "string - brief description",
+  "cards": [
+    {{
+      "title": "string - chart title",
+      "chart_type": "bar|line|pie|scalar|area|row|table",
+      "sql": "string - the SQL query (use SQLite syntax). Always filter by workspace_id = '{workspace_id}' when joining metrics table.",
+      "size_x": 12,
+      "size_y": 6,
+      "description": "brief description of what this chart shows"
+    }}
+  ]
+}}
+
+IMPORTANT SQL NOTES:
+- Always JOIN metric_entries with metrics ON metric_entries.metric_id = metrics.id
+- Always filter with metrics.workspace_id = '{workspace_id}'
+- For scalar charts (single number), use aggregations like COUNT, AVG, SUM
+- For time series (line/area), group by date using substr(metric_entries.recorded_at, 1, 10)
+- For category distribution (pie), group by metrics.category
+- Cast value to numeric when needed: CAST(metric_entries.value AS REAL)
+- Use descriptive column aliases
+
+Design the dashboard to be insightful and specific to these metrics. Group related charts together."""
+
+    raw = await _call_llm(prompt)
+    return _parse_json_response(raw)

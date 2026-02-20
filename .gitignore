@@ -29,3 +29,9 @@ evidence/node_modules/
 
 # Logs
 *.log
+
+# Secrets
+backend/service-account.json
+
+# AI
+.claude/

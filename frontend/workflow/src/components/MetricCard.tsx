@@ -35,6 +35,20 @@ export default function MetricCard({ metric }: Props) {
             <strong>Source:</strong> {metric.suggested_source}
           </p>
         )}
+        {(metric.source_table || metric.source_platform) && (
+          <div className="source-details">
+            {metric.source_platform && (
+              <span className="source-platform-badge">
+                {metric.source_platform}
+              </span>
+            )}
+            {metric.source_table && (
+              <span className="source-table-badge">
+                {metric.source_table}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
