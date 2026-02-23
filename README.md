@@ -14,81 +14,44 @@ Analyze any GitHub repository, discover trackable product/engineering metrics, g
 - Node.js 18+ (Node 20+ recommended)
 - Java 21+ (required to run Metabase)
 
-## Step-by-step (from scratch)
+## Quickstart (2 commands)
 ### 1) Clone
 ```bash
 git clone https://github.com/ashwathtt7-prog/Git-Metrics-Detector-V2.git
 cd Git-Metrics-Detector-V2
 ```
 
-### 2) Create `backend/.env`
-Copy the template:
-- `backend/.env.example` -> `backend/.env`
-
-Minimum settings (to "definitely work"):
-- LLM:
-  - Set `LLM_PROVIDER=gemini` and configure one of the Gemini options below (recommended), OR
-  - Use `LLM_PROVIDER=ollama` and ensure Ollama is running locally.
-- Metabase (needed for dashboards):
-  - `METABASE_URL=http://localhost:3003`
-  - `METABASE_USERNAME=...` (this is the Metabase *admin email* you choose)
-  - `METABASE_PASSWORD=...` (this is the Metabase *admin password* you choose; must be strong)
-- GitHub token (strongly recommended):
-  - `GITHUB_TOKEN=...` (avoids GitHub rate-limit failures)
-
-Example (safe to copy; change values):
-```env
-LLM_PROVIDER=gemini
-GEMINI_SERVICE_ACCOUNT_FILE=service-account.json
-GITHUB_TOKEN=ghp_your_token_here
-
-METABASE_URL=http://localhost:3003
-METABASE_USERNAME=admin@example.com
-METABASE_PASSWORD=Use-A-Long-Random-Password-Here
-```
-
-Gemini option A (Vertex via service account):
-1) Put your service account JSON at `backend/service-account.json`
-2) Set:
-   - `LLM_PROVIDER=gemini`
-   - `GEMINI_SERVICE_ACCOUNT_FILE=service-account.json`
-   - (optional) `GEMINI_MODEL=gemini-2.0-flash`
-
-Gemini option B (AI Studio API key):
-- `LLM_PROVIDER=gemini`
-- `GEMINI_API_KEY=...`
-
-### 3) Download Metabase (jar)
-This repo does not commit Metabase binaries. Download to `backend/metabase.jar`.
-
-- PowerShell (Windows):
-  ```powershell
-  Invoke-WebRequest -Uri "https://downloads.metabase.com/latest/metabase.jar" -OutFile "backend\\metabase.jar"
-  ```
-- macOS/Linux:
-  ```bash
-  curl -L "https://downloads.metabase.com/latest/metabase.jar" -o backend/metabase.jar
-  ```
-
-### 4) Start the stack
-The start scripts auto-create the Python venv, install backend deps, and install frontend packages on first run.
-
-Windows:
-- `start_all.bat` (backend + both UIs + Metabase)
-- `start.bat` (backend + both UIs + Evidence; no Metabase)
-
-macOS/Linux:
+### 2) Install (handles setup + prompts)
 ```bash
-./start_all.sh
+python install.py
 ```
 
-If Metabase is already running elsewhere, set `METABASE_URL` accordingly.
+`install.py` will:
+- Create `backend/venv` + install backend deps
+- Run `npm install` for `frontend/workflow` and `frontend/dashboard` (and `evidence/` if present)
+- Download `backend/metabase.jar` (if missing)
+- Prompt you for:
+  - Service account JSON path (optional; copied to `backend/service-account.json`)
+  - GitHub token (recommended; avoids rate limits)
+  - Metabase admin email/password (or auto-generate a strong password)
+- Optionally download a portable Java 21 into `backend/jdk-*` if Java 21+ is not detected
 
-Notes:
-- There is no pre-created Metabase username/password. You must set `METABASE_USERNAME` and `METABASE_PASSWORD` in `backend/.env`.
-- On first "Generate Mock Data", the backend will auto-bootstrap Metabase using those credentials (it creates the Metabase admin user).
+Non-interactive install:
+```bash
+python install.py --yes
+```
 
-### 5) Run an end-to-end analysis
+### 3) Run
+```bash
+python run.py
+```
+
+Optional: run an automated end-to-end test (analyze -> mock data -> metabase) and exit:
+```bash
+python run.py --test
+```
+
+## Using the app (manual UI flow)
 1) Open `http://localhost:3001`
 2) Paste a repo URL (recommended test repo): `https://github.com/octocat/Hello-World`
 3) Click **Analyze Repo** (you'll be taken to `/analysis/<jobId>` automatically)
@@ -108,12 +71,12 @@ If you prefer manual setup, open `http://localhost:3003` once and complete the U
 
 ## Troubleshooting
 ### GitHub rate limit / "No readable files found in repository"
-- Set `GITHUB_TOKEN` in `backend/.env` (recommended)
-- Or paste the token in the Workflow UI sidebar, then retry
+- Add a `GITHUB_TOKEN` in `backend/.env` or re-run `python install.py`
+- You can also paste the token in the Workflow UI sidebar, then retry
 
 ### Metabase won't start
 - Verify Java 21+: `java -version`
-- Windows (no-admin): unpack a portable JDK under `backend/jdk-*` (the scripts auto-detect `backend/jdk-*/bin/java.exe`)
+- No-admin option: unpack a portable JDK under `backend/jdk-*` (the runner auto-detects it)
 - Ensure `backend/metabase.jar` exists
 
 ### "Metabase credentials not configured or authentication failed"
