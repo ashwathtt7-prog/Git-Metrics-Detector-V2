@@ -6,6 +6,7 @@ export interface Workspace {
   created_at: string;
   updated_at: string;
   metric_count: number;
+  metabase_url?: string;
 }
 
 export interface Metric {

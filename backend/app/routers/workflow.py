@@ -1,5 +1,7 @@
 from typing import List
 import json
+import importlib
+import inspect
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
@@ -11,7 +13,7 @@ from ..services.analysis_service import create_job, run_analysis, add_log
 from ..services.github_service import list_user_repos
 from ..services import llm_service
 from uuid import uuid4
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 router = APIRouter()
 
@@ -123,6 +125,45 @@ async def get_job(job_id: str, session: AsyncSession = Depends(get_session)):
     return _job_response(job)
 
 
+@router.get("/debug/runtime")
+async def debug_runtime():
+    """Return non-sensitive runtime diagnostics for local development."""
+    try:
+        ms_mod = importlib.import_module("app.services.metabase_service")
+        from ..services.metabase_service import metabase_service
+        auth_src = ""
+        try:
+            auth_src = inspect.getsource(ms_mod.MetabaseService._authenticate)
+        except Exception:
+            auth_src = ""
+
+        setup_src = ""
+        try:
+            setup_src = inspect.getsource(ms_mod.MetabaseService.setup_database)
+        except Exception:
+            setup_src = ""
+
+        return {
+            "settings": {
+                "metabase_url": settings.metabase_url,
+                "metabase_username_set": bool(settings.metabase_username),
+                "metabase_password_set": bool(settings.metabase_password),
+                "gemini_service_account_file": settings.gemini_service_account_file,
+            },
+            "metabase_service": {
+                "module_file": getattr(ms_mod, "__file__", None),
+                "base_url": getattr(metabase_service, "base_url", None),
+                "username_set": bool(getattr(metabase_service, "username", "")),
+                "password_set": bool(getattr(metabase_service, "password", "")),
+                "session_token_set": bool(getattr(metabase_service, "session_token", "")),
+                "auth_refresh_enabled": ("Refresh credentials" in auth_src),
+                "setup_raises_on_no_headers": ("credentials not configured" in setup_src.lower()),
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"debug_runtime failed: {type(e).__name__}: {str(e)[:200]}")
+
+
 @router.get("/jobs/{job_id}/metrics", response_model=JobMetricsResponse)
 async def get_job_metrics(job_id: str, session: AsyncSession = Depends(get_session)):
     job = await session.get(AnalysisJob, job_id)
@@ -184,38 +225,112 @@ async def generate_more_mock_data(
     metrics = res.scalars().all()
     metrics_data = [
         {
+            "id": m.id,
             "name": m.name,
             "description": m.description,
             "category": m.category,
-            "data_type": m.data_type
+            "data_type": m.data_type,
+            "source_table": m.source_table,
+            "source_platform": m.source_platform,
         } for m in metrics
     ]
 
-    # 2. Call LLM
+    # 2. Generate mock entries (LLM with deterministic fallback)
     try:
-        mock_data, thought = await llm_service.generate_mock_data(metrics_data, ws.name)
+        mock_data, trace = await llm_service.generate_mock_data(metrics_data, ws.name)
         
         entries_added = 0
-        db_metrics = {m.name: m.id for m in metrics}
+        db_metrics_by_id = {m.id: m.id for m in metrics}
+        def _norm(s: str) -> str:
+            return "".join(ch.lower() for ch in s.strip() if ch.isalnum())
+        db_metrics_by_name = {_norm(m.name): m.id for m in metrics if m.name}
         
+        now_utc = datetime.now(timezone.utc)
+        min_ts = now_utc - timedelta(days=45)
+        max_ts = now_utc + timedelta(days=2)
+
+        def _safe_ts(raw: object, *, fallback_days_ago: int) -> str:
+            if isinstance(raw, str) and raw.strip():
+                s = raw.strip().replace("Z", "+00:00")
+                try:
+                    dtp = datetime.fromisoformat(s)
+                    if dtp.tzinfo is None:
+                        dtp = dtp.replace(tzinfo=timezone.utc)
+                    if min_ts <= dtp <= max_ts:
+                        return dtp.astimezone(timezone.utc).isoformat()
+                except Exception:
+                    pass
+            return (now_utc - timedelta(days=fallback_days_ago)).replace(hour=12, minute=0, second=0, microsecond=0).isoformat()
+
         for md in mock_data:
-            metric_name = md.get("metric_name", "")
-            metric_id = db_metrics.get(metric_name)
-            if not metric_id: continue
+            metric_id = md.get("metric_id") or ""
+            metric_name = md.get("metric_name") or ""
+            if metric_id and metric_id in db_metrics_by_id:
+                metric_id = metric_id
+            else:
+                metric_id = db_metrics_by_name.get(_norm(metric_name), "")
+            if not metric_id:
+                continue
             
-            for entry in md.get("entries", []):
+            for idx, entry in enumerate(md.get("entries", [])):
                 me = MetricEntry(
                     id=str(uuid4()),
                     metric_id=metric_id,
                     value=str(entry.get("value", "")),
-                    recorded_at=entry.get("recorded_at", datetime.now(timezone.utc).isoformat()),
+                    recorded_at=_safe_ts(entry.get("recorded_at"), fallback_days_ago=(29 - (idx % 30))),
                     notes=entry.get("notes"),
                 )
                 session.add(me)
                 entries_added += 1
         
         await session.commit()
-        return {"status": "success", "entries_added": entries_added, "thought": thought}
+
+        # 3. Ensure Metabase dashboard exists (matches expected UI workflow)
+        metabase_url = None
+        metabase_error = None
+
+        # If already created, return it.
+        if ws.dashboard_config and ws.dashboard_config.startswith("{"):
+            try:
+                existing = json.loads(ws.dashboard_config)
+                if isinstance(existing, dict) and existing.get("metabase_url"):
+                    metabase_url = existing.get("metabase_url")
+            except Exception:
+                pass
+
+        if not metabase_url:
+            try:
+                plan, plan_trace = await llm_service.generate_dashboard_plan(metrics_data, ws.name, workspace_id)
+                plan_data = plan if isinstance(plan, dict) else {"plan": plan}
+
+                try:
+                    import os
+                    from ..services.metabase_service import metabase_service
+
+                    db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data/metrics.db"))
+                    mb_db_id = await metabase_service.setup_database(db_path)
+                    if mb_db_id:
+                        mb_url = await metabase_service.create_dashboard(ws.name, mb_db_id, plan_data, workspace_id=workspace_id)
+                        if mb_url:
+                            metabase_url = mb_url
+                            ws.dashboard_config = json.dumps({"metabase_url": mb_url, "plan": plan_data, "trace": plan_trace})
+                            await session.commit()
+                        else:
+                            metabase_error = "Metabase dashboard creation returned no URL."
+                    else:
+                        metabase_error = "Metabase database registration failed (auth or connectivity issue)."
+                except Exception as me:
+                    metabase_error = f"Metabase API error: {str(me)}"
+            except Exception as pe:
+                metabase_error = f"Dashboard plan generation failed: {str(pe)}"
+
+        return {
+            "status": "success",
+            "entries_added": entries_added,
+            "trace": trace,
+            "metabase_url": metabase_url,
+            "metabase_error": metabase_error,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -251,24 +366,47 @@ async def get_metabase_plan(
         } for m in metrics
     ]
     
-    try:
-        plan, thought = await llm_service.generate_dashboard_plan(metrics_data, ws.name, workspace_id)
-        plan_data = plan if isinstance(plan, dict) else {"plan": plan}
-        
+    plan_data = None
+    plan_trace = None
+
+    # Reuse any existing plan (even if Metabase creation previously failed), otherwise generate a new one.
+    if isinstance(existing_config, dict) and (existing_config.get("cards") or existing_config.get("plan")):
+        plan_data = existing_config.get("plan") or existing_config
+        plan_trace = existing_config.get("trace")
+    else:
         try:
-            import os
-            from ..services import metabase_service
-            db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data/metrics.db"))
-            mb_db_id = await metabase_service.setup_database(db_path)
-            if mb_db_id:
-                mb_url = await metabase_service.create_dashboard(ws.name, mb_db_id, plan_data)
-                if mb_url:
-                    plan_data["metabase_url"] = mb_url
-        except Exception as me:
-            print(f"Metabase creation error: {me}")
-        
-        ws.dashboard_config = json.dumps(plan_data)
-        await session.commit()
-        return plan_data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            plan, trace = await llm_service.generate_dashboard_plan(metrics_data, ws.name, workspace_id)
+            plan_data = plan if isinstance(plan, dict) else {"plan": plan}
+            plan_trace = trace
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    metabase_error = None
+    mb_url = None
+    try:
+        import os
+        from ..services.metabase_service import metabase_service
+        db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data/metrics.db"))
+        mb_db_id = await metabase_service.setup_database(db_path)
+        if mb_db_id:
+            mb_url = await metabase_service.create_dashboard(ws.name, mb_db_id, plan_data, workspace_id=workspace_id)
+            if mb_url:
+                plan_data["metabase_url"] = mb_url
+                if "metabase_error" in plan_data:
+                    plan_data.pop("metabase_error", None)
+            else:
+                metabase_error = "Metabase dashboard creation returned no URL."
+        else:
+            metabase_error = "Metabase database registration failed (auth or connectivity issue)."
+    except Exception as me:
+        metabase_error = f"Metabase API error: {str(me)}"
+
+    if metabase_error:
+        plan_data["metabase_error"] = metabase_error
+
+    if isinstance(plan_trace, dict):
+        plan_data["trace"] = plan_trace
+
+    ws.dashboard_config = json.dumps(plan_data)
+    await session.commit()
+    return plan_data

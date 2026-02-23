@@ -23,7 +23,7 @@ class OpenRouterProvider(LLMProvider):
     def is_available(self) -> bool:
         return bool(settings.openrouter_api_key)
 
-    async def generate(self, prompt: str, temperature: float = 0.1) -> str:
+    async def generate(self, prompt: str, temperature: float = 0.1, model_override: str | None = None) -> str:
         async with httpx.AsyncClient(timeout=180) as client:
             response = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
@@ -36,7 +36,11 @@ class OpenRouterProvider(LLMProvider):
                     "messages": [
                         {
                             "role": "system",
-                            "content": "You are a JSON-only assistant. Respond with valid JSON only, no markdown, no explanation.",
+                            "content": (
+                                "Follow the user's instructions precisely. "
+                                "If the user requests JSON, respond with valid JSON only (no markdown). "
+                                "Otherwise, respond in plain text."
+                            ),
                         },
                         {"role": "user", "content": prompt},
                     ],

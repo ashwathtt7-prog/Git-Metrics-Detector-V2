@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { startAnalysis, listUserRepos, listJobs } from '../api/workflowApi';
-import type { GitHubRepo } from '../api/workflowApi';
+import type { GitHubRepo } from '../types';
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -42,7 +42,7 @@ export default function HomePage() {
     // Also fetch analyzed jobs to check for duplicates proactively
     listJobs().then(setJobs).catch(console.error);
 
-    const onTokenChanged = (e: Event) => {
+    const onTokenChanged = (_e: Event) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(fetchRepos, 800);
     };

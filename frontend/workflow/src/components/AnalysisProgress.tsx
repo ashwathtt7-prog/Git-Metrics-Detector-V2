@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Job } from '../types';
 
 interface Props {
@@ -11,7 +11,7 @@ interface Stage {
   status: 'completed' | 'in_progress' | 'pending' | 'upcoming';
 }
 
-const Typewriter = ({ text, delay = 15, isThought = false }: { text: string, delay?: number, isThought?: boolean }) => {
+const Typewriter = ({ text, delay = 15, isDetail = false }: { text: string, delay?: number, isDetail?: boolean }) => {
   const [currentText, setCurrentText] = useState('');
 
   useEffect(() => {
@@ -32,7 +32,7 @@ const Typewriter = ({ text, delay = 15, isThought = false }: { text: string, del
     return () => { active = false; };
   }, [text, delay]);
 
-  if (isThought) {
+  if (isDetail) {
     return (
       <div className="thought-content">
         <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#6366f1', fontSize: '0.8rem', fontStyle: 'italic' }}>
@@ -55,6 +55,50 @@ export default function AnalysisProgress({ job }: Props) {
   });
 
   const logs: string[] = job.logs ? JSON.parse(job.logs) : [];
+  const [followLatest, setFollowLatest] = useState(true);
+  const logContainers = useRef<Record<number, HTMLDivElement | null>>({});
+
+  const stageTaggedLogs = useMemo(() => {
+    const byStage: Record<number, string[]> = {};
+    for (const line of logs) {
+      const match = line.match(/\[S(\d+)/);
+      const stageId = match ? Number(match[1]) : null;
+      if (!stageId || Number.isNaN(stageId)) continue;
+      if (!byStage[stageId]) byStage[stageId] = [];
+      byStage[stageId].push(line);
+    }
+    return byStage;
+  }, [logs]);
+
+  const hasTaggedLogs = useMemo(() => logs.some(l => l.includes('[S')), [logs]);
+
+  const legacyStageLogs = useMemo(() => {
+    const byStage: Record<number, string[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+    for (const l of logs) {
+      if (l.includes('[S')) continue; // avoid double-display when mixed logs exist
+      if (l.includes("git") || l.includes("Connecting") || l.includes("Found") || l.includes("structure") || l.includes("layout") || l.includes("I see")) byStage[1].push(l);
+      else if (l.includes("Fetch") || l.includes("Streaming") || l.includes("buffered") || l.includes("logic files") || l.includes("architecture patterns") || l.includes("Prioritizing")) byStage[2].push(l);
+      else if (l.includes("Pass 1") || l.includes("Pass 2") || l.includes("LLM") || l.includes("Reasoning") || l.includes("Intent") || l.includes("Insight") || l.includes("Domain") || l.includes("Batch") || l.includes("Feeding") || l.includes("Discovery")) byStage[3].push(l);
+      else if (l.includes("Consolidating") || l.includes("deduplicating") || l.includes("distilled") || l.includes("Pass 3") || l.includes("Registry")) byStage[4].push(l);
+      else if (l.includes("workspace") || l.includes("visualization") || l.includes("ready") || l.includes("Synthesis") || l.includes("Plan") || l.includes("data injected") || l.includes("Reports") || l.includes("Metabase") || l.includes("LIVE")) byStage[5].push(l);
+    }
+    return byStage;
+  }, [logs]);
+
+  useEffect(() => {
+    if (!followLatest) return;
+    const raf = window.requestAnimationFrame(() => {
+      for (const key of Object.keys(logContainers.current)) {
+        const stageId = Number(key);
+        if (!showLogs[stageId]) continue;
+        const el = logContainers.current[stageId];
+        if (!el) continue;
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+
+    return () => window.cancelAnimationFrame(raf);
+  }, [followLatest, logs.length, showLogs]);
 
   const getStageStatus = (stageId: number): Stage['status'] => {
     if (job.status === 'failed') return 'pending'; // Or handle error state
@@ -75,24 +119,6 @@ export default function AnalysisProgress({ job }: Props) {
 
   const toggleLogs = (id: number) => {
     setShowLogs(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const renderLogs = (stageId: number) => {
-    // Basic logic to filter logs by stage if needed, 
-    // but for now let's just show them in the active stage or based on simple heuristics
-    if (job.current_stage !== stageId && getStageStatus(stageId) !== 'completed') return null;
-
-    // For now, let's just show all logs in the current stage's box for simplicity
-    // or distribute them if we had markers. Let's just show them in the current active stage.
-    return (
-      <div className="log-viewer">
-        {logs.map((log, i) => (
-          <div key={i} className="log-entry">
-            {log}
-          </div>
-        ))}
-      </div>
-    );
   };
 
   return (
@@ -120,32 +146,45 @@ export default function AnalysisProgress({ job }: Props) {
               className="thought-process-toggle"
               onClick={() => toggleLogs(stage.id)}
             >
-              {showLogs[stage.id] ? '▼ Hide LLM Thought Process' : '▶ Show LLM Thought Process'}
+              {showLogs[stage.id] ? '▼ Hide LLM Details' : '▶ Show LLM Details'}
             </button>
 
             {showLogs[stage.id] && stage.status !== 'upcoming' && (
               <div className="log-viewer">
-                {/* Simple filtering: show validation logs in stage 1, etc. */}
-                {logs.filter(l => {
-                  if (stage.id === 1) return l.includes("git") || l.includes("Connecting") || l.includes("Found") || l.includes("structure") || l.includes("layout") || l.includes("I see");
-                  if (stage.id === 2) return l.includes("Fetch") || l.includes("Streaming") || l.includes("buffered") || l.includes("logic files") || l.includes("architecture patterns") || l.includes("Prioritizing");
-                  if (stage.id === 3) return l.includes("Pass 1") || l.includes("Pass 2") || l.includes("LLM") || l.includes("Reasoning") || l.includes("Intent") || l.includes("Insight") || l.includes("Domain") || l.includes("Batch") || l.includes("Feeding") || l.includes("Discovery");
-                  if (stage.id === 4) return l.includes("Consolidating") || l.includes("deduplicating") || l.includes("distilled") || l.includes("Pass 3") || l.includes("Registry");
-                  if (stage.id === 5) return l.includes("workspace") || l.includes("visualization") || l.includes("ready") || l.includes("Synthesis") || l.includes("Plan") || l.includes("data injected") || l.includes("Reports") || l.includes("Metabase") || l.includes("LIVE");
-                  return false;
-                }).map((log, i) => {
-                  const isThought = log.includes("LLM Thought Process");
-                  return (
-                    <div key={i} className={`log-entry ${isThought ? 'thought-block' : ''}`}>
-                      <Typewriter text={log} isThought={isThought} delay={isThought ? 5 : 20} />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+                  <button
+                    className="thought-process-toggle"
+                    onClick={() => setFollowLatest(v => !v)}
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+                  >
+                    {followLatest ? 'Following latest' : 'Follow latest'}
+                  </button>
+                </div>
+
+                <div
+                  ref={(el) => { logContainers.current[stage.id] = el; }}
+                  style={{ maxHeight: '320px', overflowY: 'auto' }}
+                >
+                  {((hasTaggedLogs ? (stageTaggedLogs[stage.id] || []) : (legacyStageLogs[stage.id] || []))).map((log, i) => {
+                    const isDetail =
+                      log.includes("/LLM]") ||
+                      log.includes("/Evidence]") ||
+                      log.includes("/Metric]") ||
+                      log.includes("/Retry]") ||
+                      log.includes("/Progress]") ||
+                      log.includes("/Error]");
+                    return (
+                      <div key={i} className={`log-entry ${isDetail ? 'thought-block' : ''}`}>
+                        <Typewriter text={log} isDetail={isDetail} delay={isDetail ? 5 : 20} />
+                      </div>
+                    );
+                  })}
+                  {stage.status === 'in_progress' && (
+                    <div className="log-entry">
+                      <span className="log-timestamp">...</span> {job.progress_message} <span className="thinking-dot" />
                     </div>
-                  );
-                })}
-                {stage.status === 'in_progress' && (
-                  <div className="log-entry">
-                    <span className="log-timestamp">...</span> {job.progress_message} <span className="thinking-dot" />
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
           </div>

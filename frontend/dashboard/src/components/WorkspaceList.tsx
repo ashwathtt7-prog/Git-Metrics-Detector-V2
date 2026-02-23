@@ -12,7 +12,7 @@ export default function WorkspaceList({ workspaces, onDelete }: Props) {
       <div className="empty-state">
         <h2>No workspaces yet</h2>
         <p>Analyze a GitHub repository to create your first workspace.</p>
-        <a href="http://localhost:3000" className="btn-workflow">
+        <a href="http://localhost:3001" className="btn-workflow">
           Go to Workflow App
         </a>
       </div>

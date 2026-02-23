@@ -1,4 +1,4 @@
-import type { Job, JobMetrics } from '../types';
+import type { GitHubRepo, Job, JobMetrics } from '../types';
 
 const BASE = '/api/workflow';
 
@@ -43,14 +43,6 @@ export async function listJobs(): Promise<Job[]> {
   const res = await fetch(`${BASE}/jobs`);
   if (!res.ok) throw new Error('Failed to fetch jobs');
   return res.json();
-}
-
-export interface GitHubRepo {
-  full_name: string;
-  html_url: string;
-  description: string;
-  private: boolean;
-  updated_at: string;
 }
 
 export async function listUserRepos(token: string): Promise<GitHubRepo[]> {

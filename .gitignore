@@ -18,6 +18,10 @@ backend/plugins/*.jar
 backend/plugins/*.db*
 backend/mb_*.txt
 
+# Portable JDK
+backend/jdk-*/
+backend/jdk21.zip
+
 # Node
 node_modules/
 dist/
@@ -43,3 +47,6 @@ backend/service-account.json
 
 # AI
 .claude/
+
+# Local dev artifacts
+backend/tmp_openapi.json

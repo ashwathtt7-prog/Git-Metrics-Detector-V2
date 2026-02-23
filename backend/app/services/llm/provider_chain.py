@@ -57,9 +57,9 @@ class LLMProviderChain:
 
                 except Exception as e:
                     error_str = str(e).lower()
-                    is_rate_limit = any(
+                    is_retriable = any(
                         kw in error_str
-                        for kw in ["429", "rate", "quota", "resource", "limit"]
+                        for kw in ["429", "rate", "quota", "resource", "limit", "empty response"]
                     )
 
                     logger.warning(
@@ -69,13 +69,13 @@ class LLMProviderChain:
                     error_msg = str(e) or type(e).__name__
                     errors.append(f"{cfg.name}: {error_msg}")
 
-                    if is_rate_limit and attempt < MAX_RETRIES_PER_PROVIDER - 1:
+                    if is_retriable and attempt < MAX_RETRIES_PER_PROVIDER - 1:
                         delay = min(RATE_LIMIT_RETRY_DELAY * (2 ** attempt), 60)
                         logger.info(
                             f"[LLM] Rate limited on {cfg.name}, waiting {delay}s"
                         )
                         await asyncio.sleep(delay)
-                    elif is_rate_limit:
+                    elif is_retriable:
                         logger.info(
                             f"[LLM] {cfg.name} exhausted, trying next provider"
                         )
@@ -84,6 +84,6 @@ class LLMProviderChain:
                         # Non-rate-limit error, try next provider immediately
                         break
 
-        raise RuntimeError(
-            f"All LLM providers failed. Errors: {'; '.join(errors)}"
-        )
+        if n == 1:
+            raise RuntimeError(f"{self._available[0].config().name} failed. Errors: {'; '.join(errors)}")
+        raise RuntimeError(f"All LLM providers failed. Errors: {'; '.join(errors)}")

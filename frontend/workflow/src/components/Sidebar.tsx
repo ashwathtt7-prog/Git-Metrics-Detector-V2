@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { listJobs } from '../api/workflowApi';
 import type { Job } from '../types';
 

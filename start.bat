@@ -5,8 +5,8 @@ echo   Git Metrics Detector - Starting Services
 echo ============================================
 echo.
 
-echo [1/4] Starting FastAPI backend on port 8000...
-start "Backend" cmd /c "cd /d %~dp0backend && call venv\Scripts\activate && python -m uvicorn app.main:app --reload --port 8000"
+echo [1/4] Starting FastAPI backend on port 8001...
+start "Backend" cmd /c "cd /d %~dp0backend && call venv\Scripts\activate && python -m uvicorn app.main:app --reload --port 8001"
 
 timeout /t 3 /nobreak > nul
 
@@ -27,7 +27,7 @@ echo.
 echo ============================================
 echo   All services started!
 echo.
-echo   Backend:    http://localhost:8000/docs
+echo   Backend:    http://localhost:8001/docs
 echo   Dashboard:  http://localhost:3000
 echo   Workflow:   http://localhost:3001
 echo   Evidence:   http://localhost:3002

@@ -1,15 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import AnalysisProgress from '../components/AnalysisProgress';
 import MetricsList from '../components/MetricsList';
 import { getJob, getJobMetrics, startAnalysis, listUserRepos, generateMockData, getMetabasePlan } from '../api/workflowApi';
 import type { Job, Metric, GitHubRepo } from '../types';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell, AreaChart, Area
-} from 'recharts';
-
-const COLORS = ['#ef4444', '#f87171', '#dc2626', '#b91c1c', '#991b1b'];
 
 export default function AnalysisPage() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -19,6 +13,7 @@ export default function AnalysisPage() {
   const [error, setError] = useState('');
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [hasMockData, setHasMockData] = useState(false);
+  const metricsLoadedRef = useRef(false);
 
   const queryParams = new URLSearchParams(window.location.search);
   const viewDashboard = queryParams.get('view') === 'dashboard';
@@ -30,10 +25,13 @@ export default function AnalysisPage() {
   const [metabasePlan, setMetabasePlan] = useState<any | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
+  const [showOverwriteModal, setShowOverwriteModal] = useState<{ msg: string, forceAction: () => void } | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [metabaseUrl, setMetabaseUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    metricsLoadedRef.current = false;
+    setHasMockData(false);
     const cached = localStorage.getItem('github_repos_cache');
     if (cached) {
       try {
@@ -67,18 +65,28 @@ export default function AnalysisPage() {
         if (!active) return;
         setJob(jobData);
 
-        if (jobData.status === 'completed') {
+        if (jobData.status === 'completed' && !metricsLoadedRef.current) {
           const result = await getJobMetrics(jobId);
           if (active) {
             setMetrics(result.metrics);
-            // Check if there's data (simple check for demo)
-            setHasMockData(true);
+            setHasMockData(result.metrics.some(m => (m.entries || []).length > 0));
+            metricsLoadedRef.current = true;
           }
-        } else if (jobData.status !== 'failed') {
-          timeoutId = setTimeout(poll, 800); // Polling every 800ms for more real-time feel
+        }
+
+        if (jobData.status !== 'failed') {
+          timeoutId = setTimeout(poll, jobData.status === 'completed' ? 1500 : 800);
         }
       } catch (err) {
-        if (active) setError(err instanceof Error ? err.message : 'Failed to fetch job status');
+        if (!active) return;
+        const msg = err instanceof Error ? err.message : 'Failed to fetch job status';
+        // If the URL contains an invalid/non-existent job id (e.g. /analysis/job_name),
+        // go back to Home instead of leaving the user stranded on a broken page.
+        if (String(msg).toLowerCase().includes('job not found')) {
+          navigate('/');
+          return;
+        }
+        setError(msg);
       }
     };
 
@@ -98,12 +106,10 @@ export default function AnalysisPage() {
       navigate(`/analysis/${newJob.id}`);
     } catch (err: any) {
       if (err.status === 409) {
-        const confirmOverwrite = window.confirm(
-          `${err.message}\n\nDo you want to analyze it again and overwrite the current instance in the database?`
-        );
-        if (confirmOverwrite) {
-          handleAnalyzeNew(true);
-        }
+        setShowOverwriteModal({
+          msg: `${err.message}\n\nDo you want to analyze it again and overwrite the current instance in the database?`,
+          forceAction: () => handleAnalyzeNew(true),
+        });
       } else {
         alert(err.message || 'Failed to start analysis');
       }
@@ -116,15 +122,23 @@ export default function AnalysisPage() {
     if (!job?.workspace_id) return;
     setMockLoading(true);
     try {
-      await generateMockData(job.workspace_id);
+      const res = await generateMockData(job.workspace_id);
       // Re-fetch metrics to show the new data
       const result = await getJobMetrics(jobId!);
       setMetrics(result.metrics);
-      setHasMockData(true);
-      setShowSuccessModal(true);
+      setHasMockData(result.metrics.some(m => (m.entries || []).length > 0) || (res?.entries_added ?? 0) > 0);
+      if (res?.metabase_url) {
+        setMetabaseUrl(res.metabase_url);
+      }
       // Automatically fetch plan if we don't have it
       if (!metabasePlan) {
         handleMetabasePlan();
+      }
+      if (res?.metabase_error && !res?.metabase_url) {
+        setErrorMessage(`Mock data generated, but Metabase setup failed: ${res.metabase_error}\n\nTip: restart the backend so it loads backend/.env (METABASE_USERNAME/METABASE_PASSWORD), then click "Continue to Dashboard" again.`);
+        setShowErrorModal(true);
+      } else {
+        setShowSuccessModal(true);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to generate mock data. The LLM might have returned invalid data format.');
@@ -143,12 +157,20 @@ export default function AnalysisPage() {
         try {
           const parsed = JSON.parse(plan);
           if (parsed.metabase_url) { url = parsed.metabase_url; setMetabaseUrl(url); }
+          if (parsed.metabase_error) {
+            setErrorMessage(parsed.metabase_error);
+            setShowErrorModal(true);
+          }
           setMetabasePlan(parsed.plan || parsed);
         } catch (e) {
           setMetabasePlan(plan);
         }
       } else {
         if (plan.metabase_url) { url = plan.metabase_url; setMetabaseUrl(url); }
+        if (plan.metabase_error) {
+          setErrorMessage(plan.metabase_error);
+          setShowErrorModal(true);
+        }
         setMetabasePlan(plan.plan || plan);
       }
       return url;
@@ -166,19 +188,27 @@ export default function AnalysisPage() {
       setShowErrorModal(true);
       return;
     }
-    if (metabaseUrl) {
-      window.open(metabaseUrl, '_blank');
+
+    // Open a window immediately to avoid popup blockers, then navigate it once URL is known.
+    const popup = window.open('about:blank', '_blank');
+
+    const directUrl = metabaseUrl;
+    if (directUrl) {
+      if (popup) popup.location.href = directUrl;
+      else window.open(directUrl, '_blank');
       return;
     }
-    // Fetch plan and get URL directly from the return value (avoids stale state)
+
     const url = await handleMetabasePlan();
     if (url) {
-      window.open(url, '_blank');
-    } else if (!showErrorModal) {
-      // Only show this if no other error was already shown
-      setErrorMessage("Metabase dashboard is being prepared. Please click again in a few seconds.");
-      setShowErrorModal(true);
+      if (popup) popup.location.href = url;
+      else window.open(url, '_blank');
+      return;
     }
+
+    if (popup) popup.close();
+    setErrorMessage("Metabase URL was not returned. Ensure Metabase is running on your configured METABASE_URL and try again.");
+    setShowErrorModal(true);
   };
 
   if (error && !job) {
@@ -192,23 +222,30 @@ export default function AnalysisPage() {
 
   return (
     <div className="analysis-page-container" style={{ width: '100%', maxWidth: '800px', position: 'relative' }}>
-      {/* Metabase Arrow Icon */}
-      <div
-        style={{
-          position: 'absolute',
-          top: '2rem',
-          right: '0rem',
-          cursor: 'pointer',
-          color: hasMockData ? '#ef4444' : '#94a3b8',
-          transition: 'color 0.2s'
-        }}
-        title={hasMockData ? "View in Metabase" : "Not enough data"}
-        onClick={handleMetabaseClick}
-      >
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="7" y1="17" x2="17" y2="7"></line>
-          <polyline points="7 7 17 7 17 17"></polyline>
-        </svg>
+      {/* Workspaces Shortcut */}
+      <div style={{ position: 'absolute', top: '2rem', right: '0rem', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
+        <div
+          style={{
+            cursor: 'pointer',
+            color: '#ef4444',
+            transition: 'color 0.2s'
+          }}
+          title="View all workspaces"
+          onClick={() => window.open('http://localhost:3000', '_blank')}
+        >
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="7" y1="17" x2="17" y2="7"></line>
+            <polyline points="7 7 17 7 17 17"></polyline>
+          </svg>
+        </div>
+        <button
+          type="button"
+          className="thought-process-toggle"
+          style={{ fontSize: '0.75rem', padding: '0.35rem 0.6rem' }}
+          onClick={() => window.open('http://localhost:3000', '_blank')}
+        >
+          Workspaces
+        </button>
       </div>
       {/* Form at the top (as seen in wireframe) */}
       <header className="content-header">
@@ -258,7 +295,7 @@ export default function AnalysisPage() {
       <div style={{ textAlign: 'center' }}>
         <button
           className="btn-analyze"
-          onClick={handleAnalyzeNew}
+          onClick={() => handleAnalyzeNew(false)}
           disabled={loadingNew}
         >
           {loadingNew ? 'Starting...' : 'Analyze Repo'}
@@ -317,10 +354,55 @@ export default function AnalysisPage() {
             <button
               className="btn-analyze"
               style={{ width: '100%' }}
-              onClick={() => setShowSuccessModal(false)}
+              onClick={async () => {
+                setShowSuccessModal(false);
+                await handleMetabaseClick();
+              }}
             >
               Continue to Dashboard
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Overwrite Confirm Modal */}
+      {showOverwriteModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '1rem'
+        }}>
+          <div style={{
+            background: '#ffffff', width: '100%', maxWidth: '520px', borderRadius: '24px',
+            padding: '2.5rem', textAlign: 'left', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            border: '2px solid #fee2e2'
+          }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', marginBottom: '0.75rem' }}>
+              Overwrite Existing Analysis?
+            </h2>
+            <p style={{ color: '#64748b', marginBottom: '1.5rem', whiteSpace: 'pre-wrap' }}>
+              {showOverwriteModal.msg}
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                className="btn-analyze"
+                style={{ flex: 1, background: '#ef4444' }}
+                onClick={() => {
+                  const action = showOverwriteModal.forceAction;
+                  setShowOverwriteModal(null);
+                  action();
+                }}
+              >
+                Overwrite & Reanalyze
+              </button>
+              <button
+                className="btn-analyze"
+                style={{ flex: 1, background: '#ffffff', color: '#1e293b', border: '1px solid #e2e8f0' }}
+                onClick={() => setShowOverwriteModal(null)}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

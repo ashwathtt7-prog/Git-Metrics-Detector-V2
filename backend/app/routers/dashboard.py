@@ -1,4 +1,5 @@
 from typing import List
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
@@ -21,6 +22,24 @@ async def list_workspaces(session: AsyncSession = Depends(get_session)):
     )
     workspaces = result.scalars().all()
 
+    def _extract_metabase_url(dashboard_config: str | None) -> str | None:
+        if not dashboard_config or not isinstance(dashboard_config, str):
+            return None
+        s = dashboard_config.strip()
+        if not s.startswith("{"):
+            return None
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, dict):
+                if parsed.get("metabase_url"):
+                    return parsed.get("metabase_url")
+                plan = parsed.get("plan")
+                if isinstance(plan, dict) and plan.get("metabase_url"):
+                    return plan.get("metabase_url")
+        except Exception:
+            return None
+        return None
+
     responses = []
     for ws in workspaces:
         count_result = await session.execute(
@@ -32,6 +51,7 @@ async def list_workspaces(session: AsyncSession = Depends(get_session)):
                 id=ws.id, name=ws.name, repo_url=ws.repo_url,
                 description=ws.description, created_at=ws.created_at,
                 updated_at=ws.updated_at, metric_count=metric_count,
+                metabase_url=_extract_metabase_url(ws.dashboard_config),
             )
         )
     return responses

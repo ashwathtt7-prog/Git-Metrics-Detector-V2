@@ -9,7 +9,7 @@ echo "============================================"
 echo ""
 
 # --- Backend ---
-echo "[1/3] Starting FastAPI backend on port 8000..."
+echo "[1/4] Starting FastAPI backend on port 8001..."
 cd "$SCRIPT_DIR/backend"
 if [ ! -d "venv" ]; then
     echo "  Creating virtual environment..."
@@ -25,13 +25,13 @@ if [ ! -f ".env" ]; then
     cp .env.example .env
 fi
 
-python -m uvicorn app.main:app --reload --port 8000 &
+python -m uvicorn app.main:app --reload --port 8001 &
 BACKEND_PID=$!
 echo "  Backend PID: $BACKEND_PID"
 sleep 2
 
 # --- Workflow Frontend ---
-echo "[2/3] Starting Workflow app on port 3000..."
+echo "[2/4] Starting Workflow app on port 3001..."
 cd "$SCRIPT_DIR/frontend/workflow"
 if [ ! -d "node_modules" ]; then
     npm install
@@ -40,7 +40,7 @@ npm run dev &
 WORKFLOW_PID=$!
 
 # --- Dashboard Frontend ---
-echo "[3/3] Starting Dashboard app on port 3001..."
+echo "[3/4] Starting Workspaces app on port 3000..."
 cd "$SCRIPT_DIR/frontend/dashboard"
 if [ ! -d "node_modules" ]; then
     npm install
@@ -48,13 +48,30 @@ fi
 npm run dev &
 DASHBOARD_PID=$!
 
+# --- Metabase (optional) ---
+echo "[4/4] Starting Metabase on port 3003 (optional)..."
+MB_PID=""
+cd "$SCRIPT_DIR/backend"
+if [ -f "metabase.jar" ]; then
+    if command -v java >/dev/null 2>&1; then
+        MB_JETTY_PORT=3003 java -jar metabase.jar &
+        MB_PID=$!
+        echo "  Metabase PID: $MB_PID"
+    else
+        echo "  Skipping Metabase: java not found (install Java or run Metabase separately)."
+    fi
+else
+    echo "  Skipping Metabase: backend/metabase.jar not found."
+fi
+
 echo ""
 echo "============================================"
 echo "  All services started!"
 echo ""
-echo "  Backend:   http://localhost:8000/docs"
-echo "  Workflow:  http://localhost:3000"
-echo "  Dashboard: http://localhost:3001"
+echo "  Backend:    http://localhost:8001/docs"
+echo "  Workflow:   http://localhost:3001"
+echo "  Workspaces: http://localhost:3000"
+echo "  Metabase:   http://localhost:3003"
 echo "============================================"
 echo ""
 echo "Press Ctrl+C to stop all services"
@@ -63,7 +80,10 @@ echo "Press Ctrl+C to stop all services"
 cleanup() {
     echo ""
     echo "Stopping services..."
-    kill $BACKEND_PID $WORKFLOW_PID $DASHBOARD_PID 2>/dev/null
+    kill $BACKEND_PID $WORKFLOW_PID $DASHBOARD_PID 2>/dev/null || true
+    if [ -n "$MB_PID" ]; then
+        kill $MB_PID 2>/dev/null || true
+    fi
     exit 0
 }
 trap cleanup SIGINT SIGTERM

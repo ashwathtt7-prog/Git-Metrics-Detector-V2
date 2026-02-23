@@ -43,3 +43,11 @@ export interface JobMetrics {
   metrics: Metric[];
   workspace_id?: string;
 }
+
+export interface GitHubRepo {
+  full_name: string;
+  html_url: string;
+  description: string;
+  private: boolean;
+  updated_at: string;
+}

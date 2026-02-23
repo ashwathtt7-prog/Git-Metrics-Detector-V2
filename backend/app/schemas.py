@@ -66,6 +66,7 @@ class WorkspaceResponse(BaseModel):
     created_at: str
     updated_at: str
     metric_count: int = 0
+    metabase_url: Optional[str] = None
 
 
 class WorkspaceDetailResponse(BaseModel):

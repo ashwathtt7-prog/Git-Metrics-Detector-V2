@@ -23,8 +23,10 @@ class OllamaProvider(LLMProvider):
     def is_available(self) -> bool:
         return bool(settings.ollama_base_url)
 
-    async def generate(self, prompt: str, temperature: float = 0.1) -> str:
+    async def generate(self, prompt: str, temperature: float = 0.1, model_override: str | None = None) -> str:
         base_url = settings.ollama_base_url.rstrip("/")
+        lower = prompt.lower()
+        wants_json = ("```json" in lower) or ("respond in json" in lower) or ("valid json" in lower)
         async with httpx.AsyncClient(timeout=300) as client:
             response = await client.post(
                 f"{base_url}/api/generate",
@@ -32,7 +34,7 @@ class OllamaProvider(LLMProvider):
                     "model": MODEL,
                     "prompt": prompt,
                     "stream": False,
-                    "format": "json",
+                    **({"format": "json"} if wants_json else {}),
                     "options": {"temperature": temperature},
                 },
             )

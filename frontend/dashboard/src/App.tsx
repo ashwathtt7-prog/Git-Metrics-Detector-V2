@@ -1,7 +1,6 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import DashboardHome from './pages/DashboardHome';
 import WorkspacePage from './pages/WorkspacePage';
-import AnalyticsPage from './pages/AnalyticsPage';
 import './App.css';
 
 function App() {
@@ -11,7 +10,7 @@ function App() {
         <Routes>
           <Route path="/" element={<DashboardHome />} />
           <Route path="/workspace/:workspaceId" element={<WorkspacePage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/analytics" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
     </BrowserRouter>

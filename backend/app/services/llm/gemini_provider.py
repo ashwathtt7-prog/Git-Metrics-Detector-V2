@@ -23,7 +23,7 @@ SCOPES = [
 class GeminiProvider(LLMProvider):
     def __init__(self):
         self._client = None
-        self.model = settings.gemini_model or "gemini-2.5-flash"
+        self.model = settings.gemini_model or "gemini-2.0-flash"
 
     def config(self) -> ProviderConfig:
         return ProviderConfig(
@@ -57,6 +57,10 @@ class GeminiProvider(LLMProvider):
         return None
 
     def is_available(self) -> bool:
+        # If a service account file is configured, require it to resolve. This prevents
+        # silently falling back to API-key mode when the user expects Vertex auth.
+        if settings.gemini_service_account_file:
+            return bool(self._get_service_account_path())
         return bool(settings.gemini_api_key) or bool(self._get_service_account_path())
 
     def _get_client(self) -> genai.Client:
@@ -98,22 +102,93 @@ class GeminiProvider(LLMProvider):
         raise ValueError("No valid Gemini credentials found in settings")
 
     async def generate(self, prompt: str, temperature: float = 0.1, model_override: str | None = None) -> str:
-        client = self._get_client()
         target_model = model_override or self.model
-        
-        try:
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=target_model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=temperature,
-                    max_output_tokens=8192,
-                ),
-            )
-            return response.text
-        except Exception as e:
-            logger.error(f"Gemini generation failed: {e}")
-            # Reset client on failure just in case it's a transient auth state issue
-            self._client = None
-            raise
+
+        lower = (prompt or "").lower()
+        wants_json = ("```json" in lower) or ("respond as json" in lower) or ("respond in json" in lower) or ("valid json" in lower)
+
+        # Minimize safety filters to prevent blocking on source code analysis
+        safety_settings = [
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
+            ),
+        ]
+
+        # Vertex/Gemini can occasionally return an empty `response.text` for transient reasons.
+        # We retry a couple of times, re-initializing the client and lowering output tokens.
+        max_tokens_by_attempt = [8192, 4096, 2048]
+        last_err: Exception | None = None
+
+        for attempt in range(len(max_tokens_by_attempt)):
+            client = self._get_client()
+            try:
+                response = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=target_model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=temperature,
+                        max_output_tokens=max_tokens_by_attempt[attempt],
+                        safety_settings=safety_settings,
+                        **({"response_mime_type": "application/json"} if wants_json else {}),
+                    ),
+                )
+
+                text = (getattr(response, "text", None) or "").strip()
+                if not text:
+                    # Fallback: some SDK versions may not populate `response.text` reliably.
+                    try:
+                        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                            parts = response.candidates[0].content.parts
+                            joined = "\n".join([getattr(p, "text", "") for p in parts if getattr(p, "text", "")])
+                            text = (joined or "").strip()
+                    except Exception:
+                        pass
+
+                if not text:
+                    finish_reason = "unknown"
+                    safety = None
+                    try:
+                        if response.candidates:
+                            cand = response.candidates[0]
+                            finish_reason = str(getattr(cand, "finish_reason", "unknown"))
+                            safety = getattr(cand, "safety_ratings", None)
+                    except Exception:
+                        pass
+                    raise ValueError(
+                        f"Gemini empty response (finish_reason={finish_reason}, "
+                        f"model={target_model}, prompt_chars={len(prompt)}, safety={safety})"
+                    )
+
+                return text
+            except Exception as e:
+                last_err = e
+                # Force re-init on subsequent attempt.
+                self._client = None
+                if attempt < len(max_tokens_by_attempt) - 1:
+                    logger.warning(
+                        f"[Gemini] Attempt {attempt+1}/{len(max_tokens_by_attempt)} failed ({type(e).__name__}); "
+                        f"retrying with max_output_tokens={max_tokens_by_attempt[attempt+1]}..."
+                    )
+                    await asyncio.sleep(0.6 * (attempt + 1))
+                    continue
+                break
+
+        assert last_err is not None
+        if isinstance(last_err, ValueError):
+            raise last_err
+        logger.error(f"Gemini generation failed: {last_err}")
+        raise last_err

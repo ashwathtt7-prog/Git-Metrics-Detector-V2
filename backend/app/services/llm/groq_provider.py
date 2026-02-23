@@ -26,18 +26,24 @@ class GroqProvider(LLMProvider):
     def is_available(self) -> bool:
         return bool(settings.groq_api_key)
 
-    async def generate(self, prompt: str, temperature: float = 0.1) -> str:
+    async def generate(self, prompt: str, temperature: float = 0.1, model_override: str | None = None) -> str:
         client = Groq(api_key=settings.groq_api_key)
-        
-        # Groq requires "json" in the prompt when using response_format={"type": "json_object"}
-        if "json" not in prompt.lower():
-            prompt += "\n\nRespond in JSON."
+
+        lower = prompt.lower()
+        wants_json = ("```json" in lower) or ("respond in json" in lower) or ("valid json" in lower)
+
+        kwargs = {}
+        if wants_json:
+            # Groq requires "json" in the prompt when using response_format={"type": "json_object"}
+            if "json" not in lower:
+                prompt += "\n\nRespond in JSON."
+            kwargs["response_format"] = {"type": "json_object"}
 
         response = await asyncio.to_thread(
             client.chat.completions.create,
             model=MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
-            response_format={"type": "json_object"},
+            **kwargs,
         )
         return response.choices[0].message.content

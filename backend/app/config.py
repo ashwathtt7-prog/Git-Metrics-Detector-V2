@@ -8,7 +8,8 @@ class Settings(BaseSettings):
 
     # Gemini
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    # Default to a widely-available Vertex model name unless overridden via GEMINI_MODEL.
+    gemini_model: str = "gemini-2.0-flash"
     gemini_service_account_file: str = ""
 
     # Ollama (local — no API key needed)
@@ -35,13 +36,20 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite+aiosqlite:///./data/metrics.db"
 
+    # LLM prompt shaping / safety limits
+    # (Large files can cause provider timeouts/empty responses on some models.)
+    llm_max_file_chars: int = 6000
+
     # Metabase
     metabase_url: str = "http://localhost:3003"
     metabase_username: str = ""
     metabase_password: str = ""
 
     class Config:
-        env_file = ".env"
+        # Always load the backend-local env file, regardless of where the process is started from.
+        # This avoids confusing partial configuration (e.g., LLM auth loaded but Metabase creds missing)
+        # when running `uvicorn` from a different working directory.
+        env_file = str((Path(__file__).resolve().parent.parent / ".env"))
         env_file_encoding = "utf-8"
         extra = "ignore" # Ignore extra env vars
 

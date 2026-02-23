@@ -33,6 +33,15 @@ export default function WorkspacePage() {
     return <div className="loading">Loading workspace...</div>;
   }
 
+  let metabaseUrl: string | null = null;
+  if (workspace.dashboard_config) {
+    try {
+      const parsed = JSON.parse(workspace.dashboard_config);
+      if (parsed?.metabase_url) metabaseUrl = parsed.metabase_url;
+      if (!metabaseUrl && parsed?.plan?.metabase_url) metabaseUrl = parsed.plan.metabase_url;
+    } catch {}
+  }
+
   return (
     <div className="workspace-page">
       <button onClick={() => navigate('/')} className="btn-back">
@@ -45,6 +54,14 @@ export default function WorkspacePage() {
           View Repository
         </a>
       </div>
+
+      {metabaseUrl && (
+        <div style={{ margin: '0.75rem 0 1rem' }}>
+          <a className="btn-metabase" href={metabaseUrl} target="_blank" rel="noreferrer">
+            Open in Metabase ↗
+          </a>
+        </div>
+      )}
 
       {workspace.description && (
         <p className="workspace-description">{workspace.description}</p>
