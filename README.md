@@ -14,12 +14,20 @@ Analyze any GitHub repository, discover trackable product/engineering metrics, g
 - Node.js 18+ (Node 20+ recommended)
 - Java 21+ (required to run Metabase)
 
+If you're on Windows and want a "click-to-run" flow, use `Install.bat` and `Run.bat` (they call `install.py` and `run.py` for you).
+
 ## Quickstart (2 commands)
 ### 1) Clone
 ```bash
 git clone https://github.com/ashwathtt7-prog/Git-Metrics-Detector-V2.git
 cd Git-Metrics-Detector-V2
 ```
+
+## Windows (non-tech) quickstart (double-click)
+1) Download the project as a ZIP from GitHub and extract it.
+2) Double-click `Install.bat` and follow the prompts.
+3) Double-click `Run.bat`.
+4) Open `http://localhost:3001` in your browser.
 
 ### 2) Install (handles setup + prompts)
 ```bash
