@@ -63,6 +63,30 @@ Note: `--test` is much more reliable if you set a GitHub token (GitHub API rate 
 python run.py --test --github-token ghp_your_token_here
 ```
 
+## Java 21 (Metabase) - manual setup
+Metabase requires Java 21+. If you cannot let the installer download a JDK, do one of these:
+
+### Option A: Install Java 21 system-wide
+1) Install a Java 21+ JDK (Temurin 21 recommended).
+2) Verify:
+```bash
+java -version
+```
+It should show major version `21` (or higher).
+
+Temurin downloads:
+```text
+https://adoptium.net/temurin/releases/?version=21
+```
+
+### Option B: Portable JDK (no admin)
+1) Download a JDK 21 archive (zip/tar.gz) for your OS.
+2) Extract it into `backend/` so you end up with:
+   - `backend/jdk-*/bin/java` (macOS/Linux)
+   - `backend/jdk-*/bin/java.exe` (Windows)
+
+`python run.py` auto-detects `backend/jdk-*` and uses it to start Metabase.
+
 ## Using the app (manual UI flow)
 1) Open `http://localhost:3001`
 2) Paste a repo URL (recommended test repo): `https://github.com/octocat/Hello-World`
