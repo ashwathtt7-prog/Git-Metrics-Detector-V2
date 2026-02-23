@@ -51,6 +51,11 @@ Optional: run an automated end-to-end test (analyze -> mock data -> metabase) an
 python run.py --test
 ```
 
+Note: `--test` is much more reliable if you set a GitHub token (GitHub API rate limits are very low without one):
+```bash
+python run.py --test --github-token ghp_your_token_here
+```
+
 ## Using the app (manual UI flow)
 1) Open `http://localhost:3001`
 2) Paste a repo URL (recommended test repo): `https://github.com/octocat/Hello-World`

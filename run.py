@@ -144,7 +144,10 @@ def _read_env_file(path: Path) -> dict[str, str]:
 def _prompt(text: str) -> str:
     if not (sys.stdin and sys.stdin.isatty()):
         return ""
-    return input(text).strip()
+    try:
+        return input(text).strip()
+    except EOFError:
+        return ""
 
 
 def _prompt_yes_no(text: str, *, default: bool = True) -> bool:
@@ -223,18 +226,15 @@ def _terminate(proc: subprocess.Popen) -> None:
         pass
 
 
-def _run_e2e(*, repo_url: str, timeout_s: float) -> None:
+def _run_e2e(*, repo_url: str, timeout_s: float, github_token: str = "") -> None:
     _print(f"Running E2E test: analyze -> mock data -> metabase ({repo_url})")
 
     backend_env = _read_env_file(BACKEND_DIR / ".env")
-    token = (backend_env.get("GITHUB_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()
+    token = (github_token or "").strip() or (backend_env.get("GITHUB_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()
     if not token:
         token = _prompt("GitHub token for E2E test (recommended; press Enter to try without): ").strip()
-
-    if not token and not (sys.stdin and sys.stdin.isatty()):
-        raise RuntimeError(
-            "E2E test needs a GitHub token to be reliable. Set GITHUB_TOKEN in backend/.env or run interactively."
-        )
+    if not token:
+        _print("WARNING: No GitHub token provided. GitHub API rate limits may cause the test to fail.")
 
     payload: dict = {"repo_url": repo_url, "force": True}
     if token:
@@ -260,7 +260,14 @@ def _run_e2e(*, repo_url: str, timeout_s: float) -> None:
         if status == "completed":
             break
         if status == "failed":
-            raise RuntimeError(f"Analysis failed: {j.get('error_message')}")
+            err = j.get("error_message") or "Analysis failed"
+            if "rate limit" in str(err).lower():
+                raise RuntimeError(
+                    f"Analysis failed due to GitHub rate limit.\n"
+                    f"Fix: set GITHUB_TOKEN in backend/.env (or pass --github-token) and retry.\n"
+                    f"Details: {err}"
+                )
+            raise RuntimeError(f"Analysis failed: {err}")
         now = time.time()
         if now - last_print > 5.0:
             stage = j.get("current_stage")
@@ -299,6 +306,7 @@ def main() -> int:
     ap.add_argument("--smoke", action="store_true", help="Start services, verify URLs, then exit")
     ap.add_argument("--test", action="store_true", help="Run end-to-end test then exit")
     ap.add_argument("--repo", default="https://github.com/octocat/Hello-World", help="Repo URL for --test")
+    ap.add_argument("--github-token", default="", help="GitHub token for --test (overrides backend/.env)")
     args = ap.parse_args()
 
     if args.timeout is not None:
@@ -446,7 +454,7 @@ def main() -> int:
             return 0
 
         if args.test:
-            _run_e2e(repo_url=args.repo, timeout_s=args.e2e_timeout)
+            _run_e2e(repo_url=args.repo, timeout_s=args.e2e_timeout, github_token=str(args.github_token or ""))
             return 0
 
         _print("")

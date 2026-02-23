@@ -32,7 +32,10 @@ def _print(msg: str) -> None:
 def _prompt(text: str) -> str:
     if not (sys.stdin and sys.stdin.isatty()):
         return ""
-    return input(text).strip()
+    try:
+        return input(text).strip()
+    except EOFError:
+        return ""
 
 
 def _prompt_yes_no(text: str, *, default: bool = True) -> bool:
