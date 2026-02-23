@@ -6,19 +6,19 @@ echo ============================================
 echo.
 
 echo [1/4] Starting FastAPI backend on port 8001...
-start "Backend" cmd /c "cd /d %~dp0backend && call venv\Scripts\activate && python -m uvicorn app.main:app --reload --port 8001"
+start "Backend" cmd /c "cd /d %~dp0backend && if not exist venv\\Scripts\\python.exe (python -m venv venv) && call venv\\Scripts\\activate.bat && if not exist venv\\.deps_installed (pip install -r requirements.txt && type nul > venv\\.deps_installed) && if not exist .env (copy .env.example .env) && python -m uvicorn app.main:app --reload --port 8001"
 
 timeout /t 3 /nobreak > nul
 
 echo [2/4] Starting Dashboard app on port 3000...
-start "Dashboard" cmd /c "cd /d %~dp0frontend\dashboard && npm run dev -- --host"
+start "Dashboard" cmd /c "cd /d %~dp0frontend\\dashboard && if not exist node_modules (npm install) && npm run dev -- --host"
 
 echo [3/4] Starting Workflow app on port 3001...
-start "Workflow" cmd /c "cd /d %~dp0frontend\workflow && npm run dev -- --host"
+start "Workflow" cmd /c "cd /d %~dp0frontend\\workflow && if not exist node_modules (npm install) && npm run dev -- --host"
 
 echo [4/4] Starting Evidence Analytics on port 3002...
 if exist "%~dp0evidence" (
-    start "Evidence" cmd /c "cd /d %~dp0evidence && npm run dev"
+    start "Evidence" cmd /c "cd /d %~dp0evidence && if not exist node_modules (npm install) && npm run dev"
 ) else (
     echo Evidence folder not found, skipping...
 )

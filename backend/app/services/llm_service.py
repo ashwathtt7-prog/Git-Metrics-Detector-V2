@@ -7,10 +7,6 @@ import random
 from datetime import datetime, timedelta, timezone
 
 from .llm.provider_chain import LLMProviderChain
-from .llm.gemini_provider import GeminiProvider
-from .llm.groq_provider import GroqProvider
-from .llm.openrouter_provider import OpenRouterProvider
-from .llm.ollama_provider import OllamaProvider
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -20,8 +16,21 @@ _chain: LLMProviderChain | None = None
 
 def _get_chain() -> LLMProviderChain:
     global _chain
-    if _chain is None:
+    if _chain is not None:
+        return _chain
+
+    providers = []
+    gemini = None
+
+    try:
+        from .llm.gemini_provider import GeminiProvider
+
         gemini = GeminiProvider()
+    except Exception as e:
+        logger.warning(f"[LLM] Gemini provider unavailable; continuing without it: {type(e).__name__}: {str(e)[:200]}")
+
+    if gemini is not None:
+        providers.append(gemini)
 
         # If a Gemini service account file is configured and resolvable, force ALL calls
         # to use Vertex Gemini (no provider fallback). This matches the UI expectation
@@ -40,27 +49,49 @@ def _get_chain() -> LLMProviderChain:
 
         if sa_path:
             _chain = LLMProviderChain([gemini])
-        else:
-            providers = [
-                gemini,
-                OpenRouterProvider(),
-                GroqProvider(),
-                OllamaProvider(),
-            ]
+            return _chain
 
-            preferred = (settings.llm_provider or "").strip().lower()
-            if preferred:
-                order = {
-                    "gemini": GeminiProvider,
-                    "openrouter": OpenRouterProvider,
-                    "groq": GroqProvider,
-                    "ollama": OllamaProvider,
-                }
-                preferred_cls = order.get(preferred)
-                if preferred_cls:
-                    providers.sort(key=lambda p: 0 if isinstance(p, preferred_cls) else 1)
+    try:
+        from .llm.openrouter_provider import OpenRouterProvider
 
-            _chain = LLMProviderChain(providers)
+        providers.append(OpenRouterProvider())
+    except Exception as e:
+        logger.warning(f"[LLM] OpenRouter provider unavailable; continuing without it: {type(e).__name__}: {str(e)[:200]}")
+
+    # Optional dependency: the Groq provider requires the external `groq` package.
+    try:
+        from .llm.groq_provider import GroqProvider
+
+        providers.append(GroqProvider())
+    except Exception as e:
+        logger.info(f"[LLM] Groq provider unavailable; skipping: {type(e).__name__}: {str(e)[:200]}")
+
+    try:
+        from .llm.ollama_provider import OllamaProvider
+
+        providers.append(OllamaProvider())
+    except Exception as e:
+        logger.warning(f"[LLM] Ollama provider unavailable; continuing without it: {type(e).__name__}: {str(e)[:200]}")
+
+    if not providers:
+        raise RuntimeError("No LLM providers could be initialized. Install provider dependencies or adjust configuration.")
+
+    preferred = (settings.llm_provider or "").strip().lower()
+    if preferred:
+        def kind(provider) -> str:
+            try:
+                name = str(provider.config().name or "").lower()
+            except Exception:
+                name = provider.__class__.__name__.lower()
+
+            for key in ("gemini", "openrouter", "groq", "ollama", "openai", "anthropic"):
+                if key in name:
+                    return key
+            return name
+
+        providers.sort(key=lambda p: 0 if kind(p) == preferred else 1)
+
+    _chain = LLMProviderChain(providers)
     return _chain
 
 

@@ -46,11 +46,22 @@ async def list_workspaces(session: AsyncSession = Depends(get_session)):
             select(func.count()).where(Metric.workspace_id == ws.id)
         )
         metric_count = count_result.scalar() or 0
+
+        entry_count_result = await session.execute(
+            select(func.count(MetricEntry.id))
+            .select_from(MetricEntry)
+            .join(Metric, MetricEntry.metric_id == Metric.id)
+            .where(Metric.workspace_id == ws.id)
+        )
+        entry_count = entry_count_result.scalar() or 0
+        has_mock_data = entry_count > 0
+
         responses.append(
             WorkspaceResponse(
                 id=ws.id, name=ws.name, repo_url=ws.repo_url,
                 description=ws.description, created_at=ws.created_at,
                 updated_at=ws.updated_at, metric_count=metric_count,
+                has_mock_data=has_mock_data,
                 metabase_url=_extract_metabase_url(ws.dashboard_config),
             )
         )
@@ -62,6 +73,33 @@ async def get_workspace(workspace_id: str, session: AsyncSession = Depends(get_s
     ws = await session.get(Workspace, workspace_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
+
+    entry_count_result = await session.execute(
+        select(func.count(MetricEntry.id))
+        .select_from(MetricEntry)
+        .join(Metric, MetricEntry.metric_id == Metric.id)
+        .where(Metric.workspace_id == workspace_id)
+    )
+    entry_count = entry_count_result.scalar() or 0
+    has_mock_data = entry_count > 0
+
+    def _extract_metabase_url(dashboard_config: str | None) -> str | None:
+        if not dashboard_config or not isinstance(dashboard_config, str):
+            return None
+        s = dashboard_config.strip()
+        if not s.startswith("{"):
+            return None
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, dict):
+                if parsed.get("metabase_url"):
+                    return parsed.get("metabase_url")
+                plan = parsed.get("plan")
+                if isinstance(plan, dict) and plan.get("metabase_url"):
+                    return plan.get("metabase_url")
+        except Exception:
+            return None
+        return None
 
     result = await session.execute(
         select(Metric).where(Metric.workspace_id == workspace_id).order_by(Metric.display_order)
@@ -97,6 +135,8 @@ async def get_workspace(workspace_id: str, session: AsyncSession = Depends(get_s
         id=ws.id, name=ws.name, repo_url=ws.repo_url,
         description=ws.description, created_at=ws.created_at,
         updated_at=ws.updated_at, metrics=metrics,
+        has_mock_data=has_mock_data,
+        metabase_url=_extract_metabase_url(ws.dashboard_config),
         dashboard_config=ws.dashboard_config,
     )
 

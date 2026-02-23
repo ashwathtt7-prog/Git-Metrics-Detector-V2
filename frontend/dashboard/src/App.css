@@ -63,6 +63,16 @@ body {
   opacity: 0.9;
 }
 
+.notice-message {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.9rem;
+}
+
 /* --- Empty State --- */
 .empty-state {
   text-align: center;
@@ -182,6 +192,28 @@ body {
   gap: 0.5rem;
   margin: 0.75rem 0 0.25rem;
   flex-wrap: wrap;
+}
+
+.btn-generate {
+  display: inline-block;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  background: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-generate:hover {
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+
+.btn-generate:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .btn-metabase {
@@ -386,75 +418,6 @@ body {
   font-size: 0.75rem;
   color: #64748b;
   font-style: italic;
-}
-
-/* --- Add Entry Form --- */
-.add-entry-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.add-entry-form input {
-  padding: 0.5rem 0.75rem;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  color: #1e293b;
-  font-size: 0.85rem;
-  outline: none;
-}
-
-.add-entry-form input:focus {
-  border-color: #60a5fa;
-}
-
-.add-entry-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.btn-save {
-  flex: 1;
-  padding: 0.4rem;
-  background: #059669;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.btn-save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-cancel {
-  padding: 0.4rem 0.75rem;
-  background: none;
-  border: 1px solid #e2e8f0;
-  color: #64748b;
-  border-radius: 6px;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.btn-add-entry {
-  width: 100%;
-  padding: 0.5rem;
-  background: #eff6ff;
-  border: 1px dashed #cbd5e1;
-  border-radius: 6px;
-  color: #60a5fa;
-  font-size: 0.82rem;
-  cursor: pointer;
-  transition: border-color 0.2s;
-}
-
-.btn-add-entry:hover {
-  border-color: #60a5fa;
 }
 
 /* --- Shared --- */

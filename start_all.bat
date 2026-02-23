@@ -1,5 +1,6 @@
 @echo off
 REM Start all services for Git Metrics Detector
+setlocal EnableExtensions EnableDelayedExpansion
 echo ============================================
 echo   Git Metrics Detector - Starting Services
 echo ============================================
@@ -8,19 +9,19 @@ REM 1. Start Backend (FastAPI)
 echo.
 echo [1/4] Starting Backend (port 8001)...
 cd backend
-start "Backend" cmd /k "call venv\\Scripts\\activate && python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
+start "Backend" cmd /k "cd /d %~dp0backend && if not exist venv\\Scripts\\python.exe (python -m venv venv) && call venv\\Scripts\\activate.bat && if not exist venv\\.deps_installed (pip install -r requirements.txt && type nul > venv\\.deps_installed) && if not exist .env (copy .env.example .env) && python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
 cd ..
 
 REM 2. Start Workflow Frontend (Vite)
 echo [2/4] Starting Workflow Frontend (port 3001)...
 cd frontend\workflow
-start "Workflow" cmd /k "npx vite --port 3001"
+start "Workflow" cmd /k "cd /d %~dp0frontend\\workflow && if not exist node_modules (npm install) && npm run dev -- --host"
 cd ..\..
 
 REM 3. Start Dashboard Frontend (Vite)
 echo [3/4] Starting Dashboard Frontend (port 3000)...
 cd frontend\dashboard
-start "Dashboard" cmd /k "npx vite --port 3000"
+start "Dashboard" cmd /k "cd /d %~dp0frontend\\dashboard && if not exist node_modules (npm install) && npm run dev -- --host"
 cd ..\..
 
 REM 4. Start Metabase
@@ -32,11 +33,15 @@ if not exist "metabase.jar" (
     cd ..
     goto :after_metabase
 )
-if exist "jdk-21.0.10+7\bin\java.exe" (
-    start "Metabase" cmd /k "set MB_JETTY_PORT=3003 && jdk-21.0.10+7\bin\java.exe -jar metabase.jar"
-) else (
-    start "Metabase" cmd /k "set MB_JETTY_PORT=3003 && java -jar metabase.jar"
+set "JAVA_EXE=java"
+for /d %%D in (jdk-*) do (
+    if exist "%%D\\bin\\java.exe" (
+        set "JAVA_EXE=%%D\\bin\\java.exe"
+        goto :have_java
+    )
 )
+:have_java
+start "Metabase" cmd /k "set MB_JETTY_PORT=3003 && \"!JAVA_EXE!\" -jar metabase.jar"
 cd ..
 :after_metabase
 

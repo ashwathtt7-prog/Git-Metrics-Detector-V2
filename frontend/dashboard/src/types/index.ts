@@ -6,6 +6,7 @@ export interface Workspace {
   created_at: string;
   updated_at: string;
   metric_count: number;
+  has_mock_data: boolean;
   metabase_url?: string;
 }
 
@@ -29,6 +30,8 @@ export interface WorkspaceDetail {
   description?: string;
   created_at: string;
   updated_at: string;
+  has_mock_data: boolean;
+  metabase_url?: string;
   dashboard_config?: string;
   metrics: Metric[];
 }

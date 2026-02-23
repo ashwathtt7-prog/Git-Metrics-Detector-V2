@@ -11,7 +11,6 @@ export default function HomePage() {
   const [selectedRepo, setSelectedRepo] = useState('');
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [reposLoading, setReposLoading] = useState(false);
-  const [showConfirmModal, setShowConfirmModal] = useState<{ msg: string, forceAction: () => void } | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchRepos = useCallback(() => {
@@ -75,14 +74,7 @@ export default function HomePage() {
       );
 
       if (existingJob) {
-        const msg = existingJob.status === 'completed'
-          ? `This repository has already been analyzed.\n\nDo you want to analyze it again? This will overwrite the current instance in the database.`
-          : `An analysis is already in progress for this repository.\n\nDo you want to stop it and start a fresh one? This will overwrite the current instance.`;
-
-        setShowConfirmModal({
-          msg,
-          forceAction: () => handleAnalyze(true)
-        });
+        navigate(`/analysis/${existingJob.id}`);
         return;
       }
     }
@@ -97,11 +89,8 @@ export default function HomePage() {
       navigate(`/analysis/${job.id}`);
     } catch (err: any) {
       if (err.status === 409) {
-        // Fallback if the proactive check missed it
-        setShowConfirmModal({
-          msg: `${err.message}\n\nDo you want to analyze it again and overwrite the current instance?`,
-          forceAction: () => handleAnalyze(true)
-        });
+        // Repo already analyzed: take the user to the existing analysis page.
+        if (err.jobId) navigate(`/analysis/${err.jobId}`);
         return;
       } else {
         setError(err.message || 'Failed to start analysis');
@@ -181,92 +170,6 @@ export default function HomePage() {
           fontSize: '0.9rem'
         }}>
           Repository analysis status will appear here
-        </div>
-      )}
-
-      {showConfirmModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.75)',
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: '1rem'
-        }}>
-          <div style={{
-            background: '#ffffff',
-            width: '100%',
-            maxWidth: '450px',
-            borderRadius: '20px',
-            padding: '2.5rem',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-            textAlign: 'center'
-          }}>
-            <div style={{
-              width: '64px',
-              height: '64px',
-              background: '#fee2e2',
-              color: '#ef4444',
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 1.5rem',
-            }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-            </div>
-
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginBottom: '1rem' }}>Already Analyzed</h2>
-            <p style={{ color: '#64748b', lineHeight: 1.6, marginBottom: '2rem', whiteSpace: 'pre-wrap' }}>
-              {showConfirmModal.msg}
-            </p>
-
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <button
-                onClick={() => setShowConfirmModal(null)}
-                style={{
-                  flex: 1,
-                  padding: '0.8rem',
-                  borderRadius: '12px',
-                  border: '1px solid #e2e8f0',
-                  background: '#f8fafc',
-                  color: '#64748b',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'background 0.2s'
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  const action = showConfirmModal.forceAction;
-                  setShowConfirmModal(null);
-                  action();
-                }}
-                style={{
-                  flex: 1,
-                  padding: '0.8rem',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: '#ef4444',
-                  color: '#ffffff',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)',
-                  transition: 'transform 0.2s, background 0.2s'
-                }}
-              >
-                Yes, Overwrite
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

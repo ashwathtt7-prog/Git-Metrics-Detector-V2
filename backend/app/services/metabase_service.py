@@ -17,6 +17,79 @@ class MetabaseService:
         self.password = settings.metabase_password
         self.session_token = None
         self._public_sharing_enabled = False
+        self._last_auth_error: str | None = None
+
+    async def _get_setup_state(self) -> tuple[bool, str | None] | None:
+        """Return (has_user_setup, setup_token) or None if Metabase is unreachable."""
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"{self.base_url}/api/session/properties", timeout=10.0)
+                if resp.status_code != 200:
+                    return None
+                data = resp.json() or {}
+                has_user_setup = bool(data.get("has-user-setup"))
+                setup_token = data.get("setup-token")
+                return has_user_setup, setup_token if isinstance(setup_token, str) else None
+        except Exception:
+            return None
+
+    async def _try_auto_setup(self) -> bool:
+        """If Metabase isn't set up yet, attempt setup using configured credentials."""
+        state = await self._get_setup_state()
+        if not state:
+            return False
+
+        has_user_setup, setup_token = state
+        if has_user_setup:
+            return True
+
+        if not self.username or not self.password:
+            self._last_auth_error = (
+                "Metabase is running but not set up yet. Either finish setup at http://localhost:3003 "
+                "or set METABASE_USERNAME and METABASE_PASSWORD in backend/.env so the backend can bootstrap it."
+            )
+            return False
+
+        if not setup_token:
+            self._last_auth_error = (
+                "Metabase is not set up, but no setup token was available from /api/session/properties."
+            )
+            return False
+
+        payload = {
+            "token": setup_token,
+            "prefs": {
+                "site_name": "Git Metrics Detector",
+                "site_locale": "en",
+            },
+            "user": {
+                "email": self.username,
+                "password": self.password,
+                "first_name": "Git Metrics",
+                "last_name": "Detector",
+            },
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{self.base_url}/api/setup",
+                    json=payload,
+                    timeout=30.0,
+                )
+                if resp.status_code in (200, 204):
+                    logger.info(f"[Metabase] Auto-setup completed for admin '{self.username}'.")
+                    self._last_auth_error = None
+                    return True
+
+                # Avoid logging secrets; response may include validation details.
+                self._last_auth_error = f"Metabase auto-setup failed: {resp.status_code} {resp.text}"
+                logger.error(f"[Metabase] {self._last_auth_error}")
+                return False
+        except Exception as e:
+            self._last_auth_error = f"Metabase auto-setup error: {type(e).__name__}: {str(e)[:200]}"
+            logger.error(f"[Metabase] {self._last_auth_error}")
+            return False
 
     async def _authenticate(self):
         """Authenticate with Metabase and get a session token."""
@@ -51,7 +124,16 @@ class MetabaseService:
         self.base_url = (os.getenv("METABASE_URL") or self.base_url or "").rstrip("/")
 
         if not self.username or not self.password:
-            logger.warning("[Metabase] No credentials provided. Skipping authentication.")
+            state = await self._get_setup_state()
+            if state and not state[0]:
+                self._last_auth_error = (
+                    "Metabase is running but not set up yet. Finish setup at http://localhost:3003 "
+                    "or set METABASE_USERNAME and METABASE_PASSWORD in backend/.env."
+                )
+                logger.warning(f"[Metabase] {self._last_auth_error}")
+            else:
+                self._last_auth_error = "Metabase credentials are not configured (METABASE_USERNAME/METABASE_PASSWORD)."
+                logger.warning("[Metabase] No credentials provided. Skipping authentication.")
             return False
 
         try:
@@ -63,12 +145,27 @@ class MetabaseService:
                 )
                 if resp.status_code == 200:
                     self.session_token = resp.json().get("id")
+                    self._last_auth_error = None
                     return True
-                else:
-                    logger.error(f"[Metabase] Auth failed: {resp.status_code} {resp.text}")
-                    return False
+
+                # If Metabase hasn't been set up yet, try to bootstrap it once, then retry auth.
+                if await self._try_auto_setup():
+                    resp2 = await client.post(
+                        f"{self.base_url}/api/session",
+                        json={"username": self.username, "password": self.password},
+                        timeout=10.0,
+                    )
+                    if resp2.status_code == 200:
+                        self.session_token = resp2.json().get("id")
+                        self._last_auth_error = None
+                        return True
+
+                self._last_auth_error = f"Metabase auth failed: {resp.status_code} {resp.text}"
+                logger.error(f"[Metabase] {self._last_auth_error}")
+                return False
         except Exception as e:
-            logger.error(f"[Metabase] Connection error: {str(e)}")
+            self._last_auth_error = f"Metabase connection error: {type(e).__name__}: {str(e)[:200]}"
+            logger.error(f"[Metabase] {self._last_auth_error}")
             return False
 
     async def _get_headers(self):
@@ -99,9 +196,11 @@ class MetabaseService:
         """Ensure the SQLite database is registered in Metabase."""
         headers = await self._get_headers()
         if not headers:
+            extra = f" ({self._last_auth_error})" if self._last_auth_error else ""
             raise RuntimeError(
                 "Metabase credentials not configured or authentication failed. "
-                "Set METABASE_USERNAME and METABASE_PASSWORD in backend/.env."
+                f"Finish Metabase setup at http://localhost:3003, then set "
+                f"METABASE_USERNAME and METABASE_PASSWORD in backend/.env (matching the Metabase admin user){extra}."
             )
 
         def _norm_path(p: str) -> str:

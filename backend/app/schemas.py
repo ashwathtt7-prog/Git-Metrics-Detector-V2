@@ -66,6 +66,7 @@ class WorkspaceResponse(BaseModel):
     created_at: str
     updated_at: str
     metric_count: int = 0
+    has_mock_data: bool = False
     metabase_url: Optional[str] = None
 
 
@@ -76,6 +77,8 @@ class WorkspaceDetailResponse(BaseModel):
     description: Optional[str] = None
     created_at: str
     updated_at: str
+    has_mock_data: bool = False
+    metabase_url: Optional[str] = None
     dashboard_config: Optional[str] = None
     metrics: List[MetricResponse]
 

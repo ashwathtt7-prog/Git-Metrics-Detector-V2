@@ -4,9 +4,11 @@ import WorkspaceCard from './WorkspaceCard';
 interface Props {
   workspaces: Workspace[];
   onDelete: (id: string) => void;
+  onGenerateMockData: (id: string) => void;
+  isGenerating: (id: string) => boolean;
 }
 
-export default function WorkspaceList({ workspaces, onDelete }: Props) {
+export default function WorkspaceList({ workspaces, onDelete, onGenerateMockData, isGenerating }: Props) {
   if (workspaces.length === 0) {
     return (
       <div className="empty-state">
@@ -22,7 +24,13 @@ export default function WorkspaceList({ workspaces, onDelete }: Props) {
   return (
     <div className="workspace-grid">
       {workspaces.map((ws) => (
-        <WorkspaceCard key={ws.id} workspace={ws} onDelete={onDelete} />
+        <WorkspaceCard
+          key={ws.id}
+          workspace={ws}
+          onDelete={onDelete}
+          onGenerateMockData={onGenerateMockData}
+          generating={isGenerating(ws.id)}
+        />
       ))}
     </div>
   );

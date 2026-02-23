@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Metric, MetricEntry } from '../types';
-import { getMetricEntries, addMetricEntry } from '../api/dashboardApi';
+import { getMetricEntries } from '../api/dashboardApi';
 
 interface Props {
   metric: Metric;
@@ -16,10 +16,6 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function MetricColumn({ metric }: Props) {
   const [entries, setEntries] = useState<MetricEntry[]>(metric.entries || []);
-  const [newValue, setNewValue] = useState('');
-  const [newNotes, setNewNotes] = useState('');
-  const [showAdd, setShowAdd] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,22 +27,6 @@ export default function MetricColumn({ metric }: Props) {
       setEntries(metric.entries);
     }
   }, [metric.id, metric.entries]);
-
-  const handleAdd = async () => {
-    if (!newValue.trim()) return;
-    setLoading(true);
-    try {
-      const entry = await addMetricEntry(metric.id, newValue.trim(), newNotes.trim() || undefined);
-      setEntries([entry, ...entries]);
-      setNewValue('');
-      setNewNotes('');
-      setShowAdd(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to add entry');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const color = CATEGORY_COLORS[metric.category || ''] || '#6b7280';
 
@@ -87,38 +67,9 @@ export default function MetricColumn({ metric }: Props) {
             </p>
           </div>
         ) : (
-          !showAdd && !error && <p className="no-entries">No data yet</p>
+          !error && <p className="no-entries">No data yet</p>
         )}
       </div>
-
-      {showAdd ? (
-        <div className="add-entry-form">
-          <input
-            type="text"
-            placeholder="Value"
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            disabled={loading}
-          />
-          <input
-            type="text"
-            placeholder="Notes (optional)"
-            value={newNotes}
-            onChange={(e) => setNewNotes(e.target.value)}
-            disabled={loading}
-          />
-          <div className="add-entry-actions">
-            <button onClick={handleAdd} disabled={loading || !newValue.trim()} className="btn-save">
-              {loading ? '...' : 'Save'}
-            </button>
-            <button onClick={() => setShowAdd(false)} className="btn-cancel">Cancel</button>
-          </div>
-        </div>
-      ) : (
-        <button className="btn-add-entry" onClick={() => setShowAdd(true)}>
-          + Add Entry
-        </button>
-      )}
     </div>
   );
 }

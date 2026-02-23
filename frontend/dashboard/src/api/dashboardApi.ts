@@ -1,6 +1,7 @@
 import type { Workspace, WorkspaceDetail, MetricEntry } from '../types';
 
 const BASE = '/api/dashboard';
+const WORKFLOW_BASE = '/api/workflow';
 
 // --- Analytics Types ---
 
@@ -51,6 +52,12 @@ export async function getWorkspace(id: string): Promise<WorkspaceDetail> {
 export async function deleteWorkspace(id: string): Promise<void> {
   const res = await fetch(`${BASE}/workspaces/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete workspace');
+}
+
+export async function generateMockData(workspaceId: string): Promise<any> {
+  const res = await fetch(`${WORKFLOW_BASE}/workspaces/${workspaceId}/mock-data`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to generate mock data');
+  return res.json();
 }
 
 export async function getMetricEntries(metricId: string): Promise<MetricEntry[]> {

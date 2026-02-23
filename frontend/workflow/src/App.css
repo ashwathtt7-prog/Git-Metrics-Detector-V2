@@ -164,6 +164,37 @@ body {
   font-size: 1rem;
 }
 
+.analysis-top-actions {
+  position: absolute;
+  top: 1.25rem;
+  right: 0;
+}
+
+.workspaces-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid #fecaca;
+  background: #ffffff;
+  color: #ef4444;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.12);
+  transition: background 0.15s, transform 0.15s;
+}
+
+.workspaces-shortcut:hover {
+  background: #fff1f2;
+  transform: translateY(-1px);
+}
+
+.workspaces-shortcut:active {
+  transform: translateY(0);
+}
+
 .analysis-form-row {
   display: flex;
   gap: 1.5rem;

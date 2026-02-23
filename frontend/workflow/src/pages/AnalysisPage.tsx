@@ -5,6 +5,8 @@ import MetricsList from '../components/MetricsList';
 import { getJob, getJobMetrics, startAnalysis, listUserRepos, generateMockData, getMetabasePlan } from '../api/workflowApi';
 import type { Job, Metric, GitHubRepo } from '../types';
 
+const INITIAL_PATHNAME = window.location.pathname;
+
 export default function AnalysisPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
@@ -14,9 +16,6 @@ export default function AnalysisPage() {
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [hasMockData, setHasMockData] = useState(false);
   const metricsLoadedRef = useRef(false);
-
-  const queryParams = new URLSearchParams(window.location.search);
-  const viewDashboard = queryParams.get('view') === 'dashboard';
 
   // States for the form at the top
   const [loadingNew, setLoadingNew] = useState(false);
@@ -30,6 +29,12 @@ export default function AnalysisPage() {
   const [metabaseUrl, setMetabaseUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+    if (navEntry?.type === 'reload' && INITIAL_PATHNAME.startsWith('/analysis/')) {
+      navigate('/');
+      return;
+    }
+
     metricsLoadedRef.current = false;
     setHasMockData(false);
     const cached = localStorage.getItem('github_repos_cache');
@@ -106,10 +111,7 @@ export default function AnalysisPage() {
       navigate(`/analysis/${newJob.id}`);
     } catch (err: any) {
       if (err.status === 409) {
-        setShowOverwriteModal({
-          msg: `${err.message}\n\nDo you want to analyze it again and overwrite the current instance in the database?`,
-          forceAction: () => handleAnalyzeNew(true),
-        });
+        if (err.jobId) navigate(`/analysis/${err.jobId}`);
       } else {
         alert(err.message || 'Failed to start analysis');
       }
@@ -135,7 +137,10 @@ export default function AnalysisPage() {
         handleMetabasePlan();
       }
       if (res?.metabase_error && !res?.metabase_url) {
-        setErrorMessage(`Mock data generated, but Metabase setup failed: ${res.metabase_error}\n\nTip: restart the backend so it loads backend/.env (METABASE_USERNAME/METABASE_PASSWORD), then click "Continue to Dashboard" again.`);
+        setErrorMessage(
+          `Mock data generated, but Metabase setup failed: ${res.metabase_error}\n\n` +
+          `Fix: set METABASE_USERNAME and METABASE_PASSWORD in backend/.env. If Metabase is not set up yet, the backend will auto-bootstrap it using those credentials. Then click "Continue to Dashboard" again.`
+        );
         setShowErrorModal(true);
       } else {
         setShowSuccessModal(true);
@@ -222,29 +227,18 @@ export default function AnalysisPage() {
 
   return (
     <div className="analysis-page-container" style={{ width: '100%', maxWidth: '800px', position: 'relative' }}>
-      {/* Workspaces Shortcut */}
-      <div style={{ position: 'absolute', top: '2rem', right: '0rem', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
-        <div
-          style={{
-            cursor: 'pointer',
-            color: '#ef4444',
-            transition: 'color 0.2s'
-          }}
-          title="View all workspaces"
-          onClick={() => window.open('http://localhost:3000', '_blank')}
-        >
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="7" y1="17" x2="17" y2="7"></line>
-            <polyline points="7 7 17 7 17 17"></polyline>
-          </svg>
-        </div>
+      <div className="analysis-top-actions">
         <button
           type="button"
-          className="thought-process-toggle"
-          style={{ fontSize: '0.75rem', padding: '0.35rem 0.6rem' }}
+          className="workspaces-shortcut"
+          title="Open Workspaces (Dashboard)"
           onClick={() => window.open('http://localhost:3000', '_blank')}
         >
           Workspaces
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 17L17 7" />
+            <path d="M7 7h10v10" />
+          </svg>
         </button>
       </div>
       {/* Form at the top (as seen in wireframe) */}
@@ -302,7 +296,7 @@ export default function AnalysisPage() {
         </button>
       </div>
 
-      {!viewDashboard && job && <AnalysisProgress job={job} />}
+      {job && <AnalysisProgress job={job} />}
 
       {job?.status === 'completed' && (
         <div style={{ marginTop: '2rem' }}>
