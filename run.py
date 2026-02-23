@@ -44,7 +44,21 @@ def _find_java_exe() -> str:
         p = d / ("bin/java.exe" if os.name == "nt" else "bin/java")
         if p.exists():
             return str(p)
-    return shutil.which("java.exe" if os.name == "nt" else "java") or "java"
+    return shutil.which("java.exe" if os.name == "nt" else "java") or ""
+
+
+def _java_major(java_exe: str) -> int | None:
+    try:
+        out = subprocess.check_output([java_exe, "-version"], stderr=subprocess.STDOUT, text=True)
+    except Exception:
+        return None
+    m = re.search(r'version\s+"(\d+)(?:\.\d+)?', out)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
 
 
 def _ensure_cmd(name: str) -> str:
@@ -407,38 +421,53 @@ def main() -> int:
                         "Stop the process using that port, or stop the existing backend and re-run `python run.py`."
                     )
                 java_exe = _find_java_exe()
-                env = os.environ.copy()
-                env["MB_JETTY_PORT"] = str(effective_metabase_port)
-                creationflags = 0
-                if os.name == "nt":
-                    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-                LOGS_DIR.mkdir(exist_ok=True)
-                mb_log_path = LOGS_DIR / "metabase.log"
-                mb_log = open(mb_log_path, "ab", buffering=0)
-                mb_proc = subprocess.Popen(
-                    [java_exe, "-jar", str(jar)],
-                    cwd=str(BACKEND_DIR),
-                    env=env,
-                    creationflags=creationflags,
-                    stdout=mb_log,
-                    stderr=mb_log,
-                )
-                procs.append(mb_proc)
-                time.sleep(1.5)
-                if mb_proc.poll() is not None:
-                    raise RuntimeError(
-                        "Metabase exited immediately. Common causes: port already in use or Java < 21. "
-                        f"Try freeing port {effective_metabase_port} or install Java 21+. "
-                        f"See logs: {mb_log_path}"
-                    )
-                # Metabase often returns 503 while initializing; that's still "up enough" for dev startup.
-                wait_s = args.startup_timeout if args.test else min(args.startup_timeout, 8.0)
-                try:
-                    _wait_url_responding(effective_props, timeout_s=wait_s)
-                except RuntimeError:
+                if not java_exe:
                     if args.test:
-                        raise
-                    _print(f"  NOTE: Metabase is still starting; open {effective_metabase_base} and wait ~30-60s.")
+                        raise RuntimeError("java not found. Install Java 21+ (required for Metabase) and retry.")
+                    _print("  NOTE: java not found; skipping Metabase. Install Java 21+ to enable it.")
+
+                if java_exe:
+                    major = _java_major(java_exe) or 0
+                    if major < 21:
+                        if args.test:
+                            raise RuntimeError(f"Java 21+ required for Metabase. Detected Java {major}.")
+                        _print(f"  NOTE: Java 21+ required for Metabase. Detected Java {major}; skipping Metabase.")
+                        java_exe = ""
+
+                if java_exe:
+                    env = os.environ.copy()
+                    env["MB_JETTY_PORT"] = str(effective_metabase_port)
+                    creationflags = 0
+                    if os.name == "nt":
+                        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                    LOGS_DIR.mkdir(exist_ok=True)
+                    mb_log_path = LOGS_DIR / "metabase.log"
+                    mb_log = open(mb_log_path, "ab", buffering=0)
+                    mb_proc = subprocess.Popen(
+                        [java_exe, "-jar", str(jar)],
+                        cwd=str(BACKEND_DIR),
+                        env=env,
+                        creationflags=creationflags,
+                        stdout=mb_log,
+                        stderr=mb_log,
+                    )
+                    procs.append(mb_proc)
+                    time.sleep(1.5)
+                    if mb_proc.poll() is not None:
+                        raise RuntimeError(
+                            "Metabase exited immediately. Common causes: port already in use or Java < 21. "
+                            f"Try freeing port {effective_metabase_port} or install Java 21+. "
+                            f"See logs: {mb_log_path}"
+                        )
+
+                    # Metabase often returns 503 while initializing; that's still "up enough" for dev startup.
+                    wait_s = args.startup_timeout if args.test else min(args.startup_timeout, 8.0)
+                    try:
+                        _wait_url_responding(effective_props, timeout_s=wait_s)
+                    except RuntimeError:
+                        if args.test:
+                            raise
+                        _print(f"  NOTE: Metabase is still starting; open {effective_metabase_base} and wait ~30-60s.")
 
         _print("")
         _print("Ready:")

@@ -34,12 +34,19 @@ python install.py
   - Service account JSON path (optional; copied to `backend/service-account.json`)
   - GitHub token (recommended; avoids rate limits)
   - Metabase admin email/password (or auto-generate a strong password)
-- Optionally download a portable Java 21 into `backend/jdk-*` if Java 21+ is not detected
+- (If allowed) optionally download a portable Java 21 into `backend/jdk-*`
 
 Non-interactive install:
 ```bash
 python install.py --yes
 ```
+
+If you *can* allow the installer to download a portable JDK 21 (optional):
+```bash
+python install.py --download-jdk
+```
+
+If your environment blocks downloading a JDK, install Java 21+ manually (or unpack a JDK under `backend/jdk-*`).
 
 ### 3) Run
 ```bash

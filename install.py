@@ -172,8 +172,9 @@ def _ensure_java21(*, yes: bool) -> Path | None:
         if major and major >= 21:
             return java_exe
 
+    # Downloading a JDK is often blocked in corporate environments; do not do it by default.
     if not yes:
-        want = _prompt_yes_no("Java 21+ not detected. Download a portable JDK 21 into backend/?", default=True)
+        want = _prompt_yes_no("Java 21+ not detected. Download a portable JDK 21 into backend/ (optional)?", default=False)
         if not want:
             return None
 
@@ -360,7 +361,7 @@ def _ensure_env(*, yes: bool) -> tuple[str, str]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="One-command installer for Git Metrics Detector")
     ap.add_argument("--yes", action="store_true", help="Non-interactive; auto-fill missing settings")
-    ap.add_argument("--skip-jdk", action="store_true", help="Do not auto-download portable Java 21")
+    ap.add_argument("--download-jdk", action="store_true", help="Allow downloading a portable Java 21 into backend/jdk-*")
     args = ap.parse_args()
 
     if sys.version_info < (3, 10):
@@ -387,11 +388,22 @@ def main() -> int:
 
     mb_user, generated_pass = _ensure_env(yes=args.yes)
 
-    if not args.skip_jdk:
+    java_exe = None
+    if args.download_jdk:
         java_exe = _ensure_java21(yes=args.yes)
-        if not java_exe:
-            _print("WARNING: Java 21+ not detected. Metabase may not start.")
-            _print("Fix: install Java 21+ or unpack a portable JDK under backend/jdk-*.")
+    else:
+        java_exe = _detect_java_exe()
+        if java_exe:
+            major = _java_major(java_exe)
+            if not major or major < 21:
+                java_exe = None
+
+    if not java_exe:
+        _print("NOTE: Java 21+ was not detected. Metabase will NOT start until Java 21+ is available.")
+        _print("Fix options (manual):")
+        _print("  - Install Java 21+ system-wide, OR")
+        _print("  - Download a JDK 21 zip/tar.gz yourself and unpack to backend/jdk-* (so backend/jdk-*/bin/java exists).")
+        _print("  - If allowed, re-run: python install.py --download-jdk")
 
     _print("")
     _print("Install complete.")
