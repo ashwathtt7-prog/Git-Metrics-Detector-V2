@@ -53,12 +53,32 @@ echo "[4/4] Starting Metabase on port 3003 (optional)..."
 MB_PID=""
 cd "$SCRIPT_DIR/backend"
 if [ -f "metabase.jar" ]; then
-    if command -v java >/dev/null 2>&1; then
-        MB_JETTY_PORT=3003 java -jar metabase.jar &
-        MB_PID=$!
-        echo "  Metabase PID: $MB_PID"
+    JAVA_BIN="java"
+    for d in "$SCRIPT_DIR/backend"/jdk-*; do
+        if [ -x "$d/bin/java" ]; then
+            JAVA_BIN="$d/bin/java"
+            break
+        fi
+    done
+
+    if command -v "$JAVA_BIN" >/dev/null 2>&1; then
+        java_version="$("$JAVA_BIN" -version 2>&1 | head -n 1)"
+        major=""
+        if [[ "$java_version" =~ \"([0-9]+)\. ]]; then
+            major="${BASH_REMATCH[1]}"
+        elif [[ "$java_version" =~ \"([0-9]+) ]]; then
+            major="${BASH_REMATCH[1]}"
+        fi
+
+        if [ -n "$major" ] && [ "$major" -lt 21 ]; then
+            echo "  Skipping Metabase: Java 21+ required. Detected: $java_version"
+        else
+            MB_JETTY_PORT=3003 "$JAVA_BIN" -jar metabase.jar &
+            MB_PID=$!
+            echo "  Metabase PID: $MB_PID"
+        fi
     else
-        echo "  Skipping Metabase: java not found (install Java or run Metabase separately)."
+        echo "  Skipping Metabase: java not found (install Java 21+ or unpack a portable JDK under backend/jdk-*)."
     fi
 else
     echo "  Skipping Metabase: backend/metabase.jar not found."

@@ -31,10 +31,21 @@ Minimum settings (to "definitely work"):
   - Use `LLM_PROVIDER=ollama` and ensure Ollama is running locally.
 - Metabase (needed for dashboards):
   - `METABASE_URL=http://localhost:3003`
-  - `METABASE_USERNAME=...`
-  - `METABASE_PASSWORD=...` (use a strong password)
+  - `METABASE_USERNAME=...` (this is the Metabase *admin email* you choose)
+  - `METABASE_PASSWORD=...` (this is the Metabase *admin password* you choose; must be strong)
 - GitHub token (strongly recommended):
   - `GITHUB_TOKEN=...` (avoids GitHub rate-limit failures)
+
+Example (safe to copy; change values):
+```env
+LLM_PROVIDER=gemini
+GEMINI_SERVICE_ACCOUNT_FILE=service-account.json
+GITHUB_TOKEN=ghp_your_token_here
+
+METABASE_URL=http://localhost:3003
+METABASE_USERNAME=admin@example.com
+METABASE_PASSWORD=Use-A-Long-Random-Password-Here
+```
 
 Gemini option A (Vertex via service account):
 1) Put your service account JSON at `backend/service-account.json`
@@ -68,10 +79,14 @@ Windows:
 
 macOS/Linux:
 ```bash
-./start.sh
+./start_all.sh
 ```
 
 If Metabase is already running elsewhere, set `METABASE_URL` accordingly.
+
+Notes:
+- There is no pre-created Metabase username/password. You must set `METABASE_USERNAME` and `METABASE_PASSWORD` in `backend/.env`.
+- On first "Generate Mock Data", the backend will auto-bootstrap Metabase using those credentials (it creates the Metabase admin user).
 
 ### 5) Run an end-to-end analysis
 1) Open `http://localhost:3001`
