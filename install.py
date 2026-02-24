@@ -21,6 +21,7 @@ BACKEND_DIR = REPO_ROOT / "backend"
 FRONTEND_WORKFLOW_DIR = REPO_ROOT / "frontend" / "workflow"
 FRONTEND_DASHBOARD_DIR = REPO_ROOT / "frontend" / "dashboard"
 EVIDENCE_DIR = REPO_ROOT / "evidence"
+PORTABLE_DIR = REPO_ROOT / "portable"
 
 METABASE_JAR_URL = "https://downloads.metabase.com/latest/metabase.jar"
 
@@ -61,8 +62,11 @@ def _which(exe: str) -> str | None:
 
 
 def _npm_cmd() -> str:
-    # On Windows, prefer npm.cmd (batch script). Using "npm" can fail under CreateProcess.
+    # Check for portable Node.js first
     if os.name == "nt":
+        portable_npm = PORTABLE_DIR / "node" / "npm.cmd"
+        if portable_npm.exists():
+            return str(portable_npm)
         return _which("npm.cmd") or _which("npm") or "npm.cmd"
     return _which("npm") or "npm"
 
@@ -228,6 +232,18 @@ def _ensure_backend_deps(vpy: Path) -> None:
 
 
 def _ensure_node() -> None:
+    # Check for portable Node.js first
+    portable_node = PORTABLE_DIR / "node" / "node.exe" if os.name == "nt" else PORTABLE_DIR / "node" / "bin" / "node"
+    if portable_node.exists():
+        _print(f"Using portable Node.js from: {portable_node.parent}")
+        # Add to PATH for subprocess calls
+        node_dir = str(portable_node.parent)
+        if os.name == "nt":
+            os.environ["PATH"] = node_dir + os.pathsep + os.environ.get("PATH", "")
+        else:
+            os.environ["PATH"] = node_dir + os.pathsep + os.environ.get("PATH", "")
+        return
+    
     if not _which("node"):
         raise RuntimeError("Node.js is required but was not found on PATH.")
     if os.name == "nt":
@@ -238,20 +254,58 @@ def _ensure_node() -> None:
             raise RuntimeError("npm is required but was not found on PATH.")
 
 
-def _ensure_frontend_deps(app_dir: Path) -> None:
+def _ensure_frontend_deps(app_dir: Path, *, optional: bool = False) -> bool:
+    """Install npm dependencies for a frontend app.
+    
+    Args:
+        app_dir: Path to the frontend app directory
+        optional: If True, return False on failure instead of raising
+    
+    Returns:
+        True if dependencies are installed, False if optional and failed
+    """
     if not app_dir.exists():
-        return
+        return False
     node_modules = app_dir / "node_modules"
     if node_modules.exists():
-        return
+        return True
     _print(f"Installing frontend dependencies: {app_dir.relative_to(REPO_ROOT)}")
-    _run([_npm_cmd(), "install"], cwd=app_dir)
+    npm_cmd = _npm_cmd()
+    try:
+        _run([npm_cmd, "install"], cwd=app_dir)
+        return True
+    except subprocess.CalledProcessError as e:
+        if optional:
+            _print(f"WARNING: Failed to install dependencies for {app_dir.relative_to(REPO_ROOT)} (optional, skipping)")
+            _print(f"         Error: {e}")
+            return False
+        # For required packages, try with --legacy-peer-deps as a fallback
+        _print("Retrying with --legacy-peer-deps...")
+        try:
+            _run([npm_cmd, "install", "--legacy-peer-deps"], cwd=app_dir)
+            return True
+        except subprocess.CalledProcessError:
+            raise
 
 def _ensure_service_account(*, yes: bool) -> bool:
     """Ensure backend/service-account.json exists if the user wants Gemini service account auth."""
     sa_dest = BACKEND_DIR / "service-account.json"
     if sa_dest.exists():
         return True
+
+    # Check for service-account.json in common locations
+    candidate_paths = [
+        REPO_ROOT.parent / "service-account.json",  # Parent directory (v6/)
+        REPO_ROOT / "service-account.json",         # Repo root
+        Path("service-account.json"),               # Current working directory
+    ]
+    
+    for candidate in candidate_paths:
+        if candidate.exists() and _looks_like_service_account_json(candidate):
+            sa_dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(candidate, sa_dest)
+            _print(f"Found and copied service-account.json from {candidate} to backend/")
+            return True
 
     if yes:
         _print("NOTE: backend/service-account.json not found. If you want Gemini Vertex, add it later.")
@@ -379,8 +433,14 @@ def main() -> int:
 
     _ensure_frontend_deps(FRONTEND_WORKFLOW_DIR)
     _ensure_frontend_deps(FRONTEND_DASHBOARD_DIR)
+    # Evidence is optional - it has native dependencies (sqlite3) that may fail on some systems
     if EVIDENCE_DIR.exists():
-        _ensure_frontend_deps(EVIDENCE_DIR)
+        _print("")
+        _print("Installing Evidence dependencies (optional - may fail on some systems)...")
+        evidence_ok = _ensure_frontend_deps(EVIDENCE_DIR, optional=True)
+        if not evidence_ok:
+            _print("NOTE: Evidence dependencies failed to install. Evidence will be skipped.")
+            _print("      The main app (workflow + dashboard) will still work fine.")
 
     jar_path = BACKEND_DIR / "metabase.jar"
     if not jar_path.exists():

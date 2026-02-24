@@ -23,6 +23,7 @@ FRONTEND_WORKFLOW_DIR = REPO_ROOT / "frontend" / "workflow"
 FRONTEND_DASHBOARD_DIR = REPO_ROOT / "frontend" / "dashboard"
 EVIDENCE_DIR = REPO_ROOT / "evidence"
 LOGS_DIR = REPO_ROOT / "logs"
+PORTABLE_DIR = REPO_ROOT / "portable"
 
 
 def _print(msg: str) -> None:
@@ -62,6 +63,20 @@ def _java_major(java_exe: str) -> int | None:
 
 
 def _ensure_cmd(name: str) -> str:
+    # Check for portable Node.js first
+    if name.lower() in ("npm", "npx", "node"):
+        if os.name == "nt":
+            portable_exe = PORTABLE_DIR / "node" / f"{name}.cmd"
+            if portable_exe.exists():
+                return str(portable_exe)
+            portable_exe = PORTABLE_DIR / "node" / f"{name}.exe"
+            if portable_exe.exists():
+                return str(portable_exe)
+        else:
+            portable_exe = PORTABLE_DIR / "node" / "bin" / name
+            if portable_exe.exists():
+                return str(portable_exe)
+    
     # On Windows, prefer the .cmd shim for npm/npx (CreateProcess won't run .cmd reliably via bare name).
     if os.name == "nt" and name.lower() in ("npm", "npx"):
         p_cmd = shutil.which(name + ".cmd")

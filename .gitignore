@@ -22,6 +22,9 @@ backend/mb_*.txt
 backend/jdk-*/
 backend/jdk21.zip
 
+# Portable dependencies (downloaded by Install.bat)
+portable/
+
 # Node
 node_modules/
 dist/
