@@ -85,7 +85,9 @@ def _download(url: str, dest: Path) -> None:
     if dest.exists() and dest.stat().st_size > 0:
         return
     _print(f"Downloading {url} -> {dest}")
-    with urllib.request.urlopen(url) as resp, open(tmp, "wb") as f:
+    # Create a request with User-Agent header to avoid 403 errors
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Python/3.12"})
+    with urllib.request.urlopen(req) as resp, open(tmp, "wb") as f:
         shutil.copyfileobj(resp, f)
     tmp.replace(dest)
 
@@ -187,11 +189,34 @@ def _ensure_java21(*, yes: bool) -> Path | None:
     except Exception:
         return None
 
-    url = f"https://api.adoptium.net/v3/binary/latest/21/ga/{os_name}/{arch}/jdk/hotspot/normal/eclipse?project=jdk"
+    # Try multiple JDK download sources
+    urls = [
+        f"https://api.adoptium.net/v3/binary/latest/21/ga/{os_name}/{arch}/jdk/hotspot/normal/eclipse?project=jdk",
+        # Fallback: Direct link to Eclipse Temurin 21 for Windows x64
+        "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.5%2B11/OpenJDK21U-jdk_x64_windows_hotspot_21.0.5_11.zip",
+    ]
+    
+    # For non-Windows, use appropriate fallback
+    if os_name != "windows" or arch != "x64":
+        urls = [urls[0]]  # Only use API for non-standard platforms
+    
     with tempfile.TemporaryDirectory() as td:
         tmp_dir = Path(td)
         archive_path = tmp_dir / f"jdk21.{archive.replace('.', '') if archive != 'zip' else 'zip'}"
-        _download(url, archive_path)
+        
+        last_error = None
+        for url in urls:
+            try:
+                _download(url, archive_path)
+                break
+            except Exception as e:
+                last_error = e
+                _print(f"Download failed from {url}: {e}")
+                if archive_path.exists():
+                    archive_path.unlink()
+        else:
+            _print(f"Failed to download JDK from all sources. Last error: {last_error}")
+            return None
 
         _print(f"Extracting {archive_path} -> {BACKEND_DIR}")
         if archive == "zip":

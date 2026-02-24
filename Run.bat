@@ -31,12 +31,20 @@ if exist "%PORTABLE_DIR%\python\python.exe" (
     set "PY_EXE=%PORTABLE_DIR%\python\python.exe"
     echo Using portable Python from: %PORTABLE_DIR%\python
 ) else (
-    REM Check system Python
+    REM Check system Python (skip Windows Store aliases)
     where python >nul 2>nul
     if not errorlevel 1 (
-        python --version 2>nul | findstr /R "3\.[1-9][0-9]" >nul
-        if not errorlevel 1 (
-            set "PY_EXE=python"
+        for /f "tokens=*" %%i in ('where python 2^>nul') do (
+            set "TEST_PYTHON=%%i"
+            REM Skip Windows Store aliases (they don't work)
+            echo !TEST_PYTHON! | findstr /I "WindowsApps" >nul
+            if errorlevel 1 (
+                REM Not a Windows Store alias, test if it actually works
+                "!TEST_PYTHON!" --version 2>nul | findstr /R "3\.[1-9][0-9]" >nul
+                if not errorlevel 1 (
+                    set "PY_EXE=!TEST_PYTHON!"
+                )
+            )
         )
     )
     
@@ -89,10 +97,10 @@ REM ============================================
 echo.
 echo Starting services...
 echo.
-echo Running: %PY_EXE% %PY_ARGS% run.py %*
+echo Running: "%PY_EXE%" %PY_ARGS% run.py %*
 echo.
 
-%PY_EXE% %PY_ARGS% run.py %*
+"%PY_EXE%" %PY_ARGS% run.py %*
 set "EC=%ERRORLEVEL%"
 
 echo.

@@ -29,19 +29,26 @@ if exist "%PORTABLE_PYTHON%" (
     goto :python_ok
 )
 
-REM Check system Python
+REM Check system Python (skip Windows Store aliases)
 where python >nul 2>nul
 if not errorlevel 1 (
-    for /f "tokens=*" %%i in ('where python') do set "SYS_PYTHON=%%i"
-    python --version 2>nul | findstr /R "3\.1[0-9]" >nul
-    if not errorlevel 1 (
-        echo   Found system Python 3.10+: !SYS_PYTHON!
-        set "PY_EXE=!SYS_PYTHON!"
-        goto :python_ok
+    for /f "tokens=*" %%i in ('where python 2^>nul') do (
+        set "TEST_PYTHON=%%i"
+        REM Skip Windows Store aliases (they don't work)
+        echo !TEST_PYTHON! | findstr /I "WindowsApps" >nul
+        if errorlevel 1 (
+            REM Not a Windows Store alias, test if it actually works
+            "!TEST_PYTHON!" --version 2>nul | findstr /R "3\.1[0-9]" >nul
+            if not errorlevel 1 (
+                echo   Found system Python 3.10+: !TEST_PYTHON!
+                set "PY_EXE=!TEST_PYTHON!"
+                goto :python_ok
+            )
+        )
     )
 )
 
-REM Check py launcher
+REM Check py launcher (more reliable on Windows)
 where py >nul 2>nul
 if not errorlevel 1 (
     py -3 --version 2>nul | findstr /R "3\.1[0-9]" >nul
@@ -156,9 +163,20 @@ REM Step 3: Configure npm for SSL issues
 REM ============================================
 echo.
 echo [3/4] Configuring npm...
-npm config set strict-ssl false 2>nul
-npm config set fetch-retry-mintimeout 20000 2>nul
-npm config set fetch-retry-maxtimeout 120000 2>nul
+
+REM Create local .npmrc file instead of using global config (avoids hanging)
+set "NPMRC_FILE=%~dp0.npmrc"
+if not exist "%NPMRC_FILE%" (
+    echo   Creating local .npmrc configuration...
+    (
+        echo strict-ssl=false
+        echo fetch-retry-mintimeout=20000
+        echo fetch-retry-maxtimeout=120000
+    ) > "%NPMRC_FILE%"
+    echo   Created .npmrc with SSL and retry settings.
+) else (
+    echo   Found existing .npmrc configuration.
+)
 echo   npm configured.
 
 REM ============================================
@@ -167,10 +185,10 @@ REM ============================================
 echo.
 echo [4/4] Running install script...
 echo.
-echo Running: %PY_EXE% %PY_ARGS% install.py --yes --download-jdk %*
+echo Running: "%PY_EXE%" %PY_ARGS% install.py --yes --download-jdk %*
 echo.
 
-%PY_EXE% %PY_ARGS% install.py --yes --download-jdk %*
+"%PY_EXE%" %PY_ARGS% install.py --yes --download-jdk %*
 set "EC=%ERRORLEVEL%"
 
 echo.
