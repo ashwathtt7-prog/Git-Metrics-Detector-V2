@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { startAnalysis, listUserRepos, listJobs } from '../api/workflowApi';
-import type { GitHubRepo } from '../types';
+import type { GitHubRepo, Job } from '../types';
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -12,6 +12,8 @@ export default function HomePage() {
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [reposLoading, setReposLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showOverwriteModal, setShowOverwriteModal] = useState<{ existingJob: Job, repoUrl: string } | null>(null);
+  const [pendingForceUrl, setPendingForceUrl] = useState<string | null>(null);
 
   const fetchRepos = useCallback(() => {
     const token = localStorage.getItem('github_token') || '';
@@ -58,7 +60,8 @@ export default function HomePage() {
   };
 
   const handleAnalyze = async (force: boolean = false) => {
-    const rawUrl = (externalLink || selectedRepo).trim();
+    // Use pending URL if force reanalyzing, otherwise use form inputs
+    const rawUrl = force && pendingForceUrl ? pendingForceUrl : (externalLink || selectedRepo).trim();
     if (!rawUrl) {
       setError('Please provide a repository URL or select one.');
       return;
@@ -74,27 +77,32 @@ export default function HomePage() {
       );
 
       if (existingJob) {
-        navigate(`/analysis/${existingJob.id}`);
+        // Show modal asking user what they want to do
+        setShowOverwriteModal({ existingJob, repoUrl: rawUrl });
         return;
       }
     }
 
     setLoading(true);
     setError('');
+    setPendingForceUrl(rawUrl); // Store for potential force reanalyze
 
     const token = localStorage.getItem('github_token') || undefined;
 
     try {
       const job = await startAnalysis(rawUrl, token, force);
+      // Navigate immediately to the analysis page
+      setPendingForceUrl(null); // Clear pending URL on success
       navigate(`/analysis/${job.id}`);
     } catch (err: any) {
       if (err.status === 409) {
         // Repo already analyzed: take the user to the existing analysis page.
-        if (err.jobId) navigate(`/analysis/${err.jobId}`);
-        return;
-      } else {
-        setError(err.message || 'Failed to start analysis');
+        if (err.jobId) {
+          navigate(`/analysis/${err.jobId}`);
+          return;
+        }
       }
+      setError(err.message || 'Failed to start analysis');
       setLoading(false);
     }
   };
@@ -170,6 +178,56 @@ export default function HomePage() {
           fontSize: '0.9rem'
         }}>
           Repository analysis status will appear here
+        </div>
+      )}
+
+      {/* Overwrite Confirm Modal */}
+      {showOverwriteModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '1rem'
+        }}>
+          <div style={{
+            background: '#ffffff', width: '100%', maxWidth: '520px', borderRadius: '24px',
+            padding: '2.5rem', textAlign: 'left', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            border: '2px solid #fbbf24'
+          }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', marginBottom: '0.75rem' }}>
+              Repository Already Analyzed
+            </h2>
+            <p style={{ color: '#64748b', marginBottom: '1.5rem', whiteSpace: 'pre-wrap' }}>
+              This repository has already been analyzed (status: {showOverwriteModal.existingJob.status}).
+              Would you like to view the existing analysis or overwrite it with a new one?
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                className="btn-analyze"
+                style={{ flex: 1, background: '#ef4444' }}
+                onClick={() => {
+                  navigate(`/analysis/${showOverwriteModal.existingJob.id}`);
+                  setShowOverwriteModal(null);
+                }}
+              >
+                View Existing
+              </button>
+              <button
+                className="btn-analyze"
+                style={{ flex: 1, background: '#ef4444' }}
+                onClick={() => {
+                  const repoUrl = showOverwriteModal.repoUrl;
+                  setShowOverwriteModal(null);
+                  setPendingForceUrl(repoUrl);
+                  // Use setTimeout to ensure state is updated before calling handleAnalyze
+                  setTimeout(() => {
+                    handleAnalyze(true);
+                  }, 0);
+                }}
+              >
+                Overwrite & Reanalyze
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -387,15 +387,19 @@ class MetabaseService:
             created_cards: list[dict] = []
             card_plans = plan.get("cards", []) or []
             for i, card_plan in enumerate(card_plans):
+                chart_type = self._map_chart_type(card_plan.get("chart_type", "bar"))
+                sql_query = _fix_sql(card_plan.get("sql"), effective_ws_id)
+                viz_settings = self._infer_visualization_settings(card_plan.get("chart_type", "bar"), sql_query)
+                
                 card_payload = {
                     "name": card_plan["title"],
                     "dataset_query": {
                         "database": db_id,
                         "type": "native",
-                        "native": {"query": _fix_sql(card_plan.get("sql"), effective_ws_id)}
+                        "native": {"query": sql_query}
                     },
-                    "display": self._map_chart_type(card_plan["chart_type"]),
-                    "visualization_settings": {}
+                    "display": chart_type,
+                    "visualization_settings": viz_settings
                 }
                 card_resp = await client.post(f"{self.base_url}/api/card", headers=headers, json=card_payload)
                 if card_resp.status_code != 200:
@@ -407,15 +411,19 @@ class MetabaseService:
                 logger.warning("[Metabase] No cards were created from plan; trying fallback cards.")
                 fallback_plans = _fallback_cards(effective_ws_id)
                 for j, card_plan in enumerate(fallback_plans):
+                    chart_type = self._map_chart_type(card_plan.get("chart_type", "bar"))
+                    sql_query = _fix_sql(card_plan.get("sql"), effective_ws_id)
+                    viz_settings = self._infer_visualization_settings(card_plan.get("chart_type", "bar"), sql_query)
+                    
                     card_payload = {
                         "name": card_plan["title"],
                         "dataset_query": {
                             "database": db_id,
                             "type": "native",
-                            "native": {"query": _fix_sql(card_plan.get("sql"), effective_ws_id)},
+                            "native": {"query": sql_query},
                         },
-                        "display": self._map_chart_type(card_plan["chart_type"]),
-                        "visualization_settings": {},
+                        "display": chart_type,
+                        "visualization_settings": viz_settings,
                     }
                     card_resp = await client.post(f"{self.base_url}/api/card", headers=headers, json=card_payload)
                     if card_resp.status_code != 200:
@@ -545,5 +553,85 @@ class MetabaseService:
             "row": "row"
         }
         return mapping.get(ct, "bar")
+
+    def _infer_visualization_settings(self, chart_type: str, sql: str) -> dict:
+        """Infer visualization settings from chart type and SQL query.
+        
+        For bar, line, area charts, Metabase needs to know which columns to use
+        for x-axis (dimensions) and y-axis (metrics).
+        """
+        settings = {}
+        
+        if chart_type in ("bar", "line", "area"):
+            # Try to extract column names from SQL
+            # Look for column aliases after AS keyword
+            import re
+            
+            # Find SELECT ... FROM pattern and extract columns
+            select_match = re.search(
+                r"SELECT\s+(.*?)\s+FROM",
+                sql,
+                re.IGNORECASE | re.DOTALL
+            )
+            
+            if select_match:
+                columns_part = select_match.group(1)
+                # Extract aliases (AS alias or just alias after expression)
+                aliases = []
+                
+                # Pattern for "AS alias" or "as alias"
+                as_pattern = re.findall(r'\bAS\s+(\w+)\b', columns_part, re.IGNORECASE)
+                aliases.extend(as_pattern)
+                
+                # If no AS aliases found, try to extract simple column names
+                if not aliases:
+                    # Split by comma and clean up
+                    parts = columns_part.split(",")
+                    for part in parts:
+                        part = part.strip()
+                        # Remove function calls and get the last word as potential alias
+                        words = re.findall(r'\b(\w+)\b', part)
+                        if words:
+                            # Skip SQL keywords
+                            skip_words = {'count', 'sum', 'avg', 'min', 'max', 'date', 'substr', 'cast', 'real'}
+                            for w in reversed(words):
+                                if w.lower() not in skip_words:
+                                    aliases.append(w)
+                                    break
+                
+                if len(aliases) >= 2:
+                    # First column is typically x-axis (dimension), rest are y-axis (metrics)
+                    settings["graph.dimensions"] = [aliases[0]]
+                    settings["graph.metrics"] = aliases[1:]
+                elif len(aliases) == 1:
+                    # Single column - use as metric
+                    settings["graph.metrics"] = [aliases[0]]
+            
+            # Default fallback if we couldn't parse
+            if not settings.get("graph.dimensions"):
+                settings["graph.dimensions"] = ["day"]
+            if not settings.get("graph.metrics"):
+                settings["graph.metrics"] = ["count"]
+                
+        elif chart_type == "pie":
+            # Pie charts need a dimension and metric
+            import re
+            select_match = re.search(
+                r"SELECT\s+(.*?)\s+FROM",
+                sql,
+                re.IGNORECASE | re.DOTALL
+            )
+            if select_match:
+                columns_part = select_match.group(1)
+                as_pattern = re.findall(r'\bAS\s+(\w+)\b', columns_part, re.IGNORECASE)
+                if len(as_pattern) >= 2:
+                    settings["pie.dimension"] = as_pattern[0]
+                    settings["pie.metric"] = as_pattern[1]
+        
+        elif chart_type == "scalar":
+            # Scalar charts just need to show a single value
+            settings["scalar.field"] = "value"
+        
+        return settings
 
 metabase_service = MetabaseService()
