@@ -20,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent
 BACKEND_DIR = REPO_ROOT / "backend"
 FRONTEND_WORKFLOW_DIR = REPO_ROOT / "frontend" / "workflow"
 FRONTEND_DASHBOARD_DIR = REPO_ROOT / "frontend" / "dashboard"
+FRONTEND_VISUALIZATION_DIR = REPO_ROOT / "frontend" / "visualization"
 EVIDENCE_DIR = REPO_ROOT / "evidence"
 PORTABLE_DIR = REPO_ROOT / "portable"
 
@@ -458,6 +459,7 @@ def main() -> int:
 
     _ensure_frontend_deps(FRONTEND_WORKFLOW_DIR)
     _ensure_frontend_deps(FRONTEND_DASHBOARD_DIR)
+    _ensure_frontend_deps(FRONTEND_VISUALIZATION_DIR)
     # Evidence is optional - it has native dependencies (sqlite3) that may fail on some systems
     if EVIDENCE_DIR.exists():
         _print("")

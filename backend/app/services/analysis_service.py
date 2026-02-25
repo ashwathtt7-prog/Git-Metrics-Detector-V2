@@ -486,25 +486,25 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                         mb_url = await metabase_service.create_dashboard(project_summary.get("project_name", repo), mb_db_id, plan_data, workspace_id=workspace_id)
                         if mb_url:
                             final_url = mb_url
-                                
-                                # Indexing grace period
-                                try:
-                                    add_log(job, "Polishing visual telemetry layer...", stage=5)
-                                    await asyncio.sleep(2.0)
-                                    async with httpx.AsyncClient() as client:
-                                        v_resp = await client.get(final_url, timeout=5.0)
-                                        if v_resp.status_code == 200 and "not found" not in v_resp.text.lower():
-                                            add_log(job, "Strategic visualization link verified and active.", stage=5)
-                                        else:
-                                            add_log(job, "Visualization suite warming up...", stage=5)
-                                except Exception: pass
                             
-                            add_log(job, f"SYNERGETIC TELEMETRY LIVE: {final_url}", stage=5)
-                            from ..models import Workspace
-                            ws = await session.get(Workspace, workspace_id)
-                            if ws:
-                                ws.dashboard_config = json.dumps({"metabase_url": final_url, "plan": plan_data, "trace": plan_trace})
-                                await session.commit()
+                            # Indexing grace period
+                            try:
+                                add_log(job, "Polishing visual telemetry layer...", stage=5)
+                                await asyncio.sleep(2.0)
+                                async with httpx.AsyncClient() as client:
+                                    v_resp = await client.get(final_url, timeout=5.0)
+                                    if v_resp.status_code == 200 and "not found" not in v_resp.text.lower():
+                                        add_log(job, "Strategic visualization link verified and active.", stage=5)
+                                    else:
+                                        add_log(job, "Visualization suite warming up...", stage=5)
+                            except Exception: pass
+                        
+                        add_log(job, f"SYNERGETIC TELEMETRY LIVE: {final_url}", stage=5)
+                        from ..models import Workspace
+                        ws = await session.get(Workspace, workspace_id)
+                        if ws:
+                            ws.dashboard_config = json.dumps({"metabase_url": final_url, "plan": plan_data, "trace": plan_trace})
+                            await session.commit()
                 except Exception as me:
                     logger.error(f"[Analysis] Metabase deployment failed: {me}")
                     add_log(job, f"Telemetry deployment warning: {str(me)}", stage=5)
