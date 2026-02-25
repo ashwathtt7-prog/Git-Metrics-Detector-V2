@@ -18,22 +18,18 @@ export default function HomePage() {
   const fetchRepos = useCallback(() => {
     const token = localStorage.getItem('github_token') || '';
     console.log('[HomePage] Fetching repos with token:', token ? '***' : 'missing');
-    if (token) {
-      setReposLoading(true);
-      listUserRepos(token)
-        .then((data) => {
-          console.log('[HomePage] Repos fetched:', data.length);
-          localStorage.setItem('github_repos_cache', JSON.stringify(data));
-          setRepos(data);
-        })
-        .catch((err) => {
-          console.error('[HomePage] Repo fetch error:', err);
-          setError('Failed to load repositories');
-        })
-        .finally(() => setReposLoading(false));
-    } else {
-      setRepos([]);
-    }
+    setReposLoading(true);
+    listUserRepos(token || '')
+      .then((data) => {
+        console.log('[HomePage] Repos fetched:', data.length);
+        localStorage.setItem('github_repos_cache', JSON.stringify(data));
+        setRepos(data);
+      })
+      .catch((err) => {
+        console.error('[HomePage] Repo fetch error:', err);
+        setError('Failed to load repositories');
+      })
+      .finally(() => setReposLoading(false));
   }, []);
 
   const [jobs, setJobs] = useState<any[]>([]);
@@ -111,7 +107,7 @@ export default function HomePage() {
     <div className="home-page-container" style={{ width: '100%', maxWidth: '800px' }}>
       <header className="content-header">
         <h1>New Repository Analysis</h1>
-        <p>Select a local repository or provide an external URL to begin deep metrics detection.</p>
+        <p>Choose one of your repositories or provide an external GitHub URL to begin deep metrics detection.</p>
       </header>
 
       <div className="analysis-form-row">

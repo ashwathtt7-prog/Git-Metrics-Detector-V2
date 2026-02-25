@@ -373,8 +373,9 @@ class MetabaseService:
 
             # 1. Create Dashboard
             dash_payload = {
-                "name": f"{workspace_name} - Metrics Discovery",
-                "description": plan.get("description", "AI-Generated Dashboard")
+                "name": f"Strategic Analytics: {workspace_name}",
+                "description": "Executive Intelligence Suite - AI-Driven Metrics & Strategic Insights",
+                "cache_ttl": 60
             }
             dash_resp = await client.post(f"{self.base_url}/api/dashboard", headers=headers, json=dash_payload)
             if dash_resp.status_code != 200:
@@ -389,8 +390,8 @@ class MetabaseService:
             for i, card_plan in enumerate(card_plans):
                 chart_type = self._map_chart_type(card_plan.get("chart_type", "bar"))
                 sql_query = _fix_sql(card_plan.get("sql"), effective_ws_id)
-                viz_settings = self._infer_visualization_settings(card_plan.get("chart_type", "bar"), sql_query)
-                
+                viz_settings = self._infer_visualization_settings(card_plan.get("chart_type", "bar"), sql_query, card_index=i)
+
                 card_payload = {
                     "name": card_plan["title"],
                     "dataset_query": {
@@ -413,8 +414,8 @@ class MetabaseService:
                 for j, card_plan in enumerate(fallback_plans):
                     chart_type = self._map_chart_type(card_plan.get("chart_type", "bar"))
                     sql_query = _fix_sql(card_plan.get("sql"), effective_ws_id)
-                    viz_settings = self._infer_visualization_settings(card_plan.get("chart_type", "bar"), sql_query)
-                    
+                    viz_settings = self._infer_visualization_settings(card_plan.get("chart_type", "bar"), sql_query, card_index=j)
+
                     card_payload = {
                         "name": card_plan["title"],
                         "dataset_query": {
@@ -485,9 +486,18 @@ class MetabaseService:
                     if not card_id:
                         continue
                     place = placements[idx] if idx < len(placements) else {"col": 0, "row": idx * 6, "size_x": 24, "size_y": 6}
+                    # Cyberpunk Dark Theme: Deep navy/black backgrounds with neon accents
+                    card_viz_settings = {}
+                    # Premium White & Red Theme
+                    card_viz_settings = {}
+                    # Using a subtle shadow and border to make cards "pop" on white background
+                    card_viz_settings["card.background_color"] = "#ffffff" if idx % 2 == 0 else "#fff5f5"
+                    card_viz_settings["card.border_style"] = "none" # Metabase doesn't support 1px solid easily via this key
+                    card_viz_settings["graph.show_values"] = False
+                    card_viz_settings["text.align"] = "center"
+
                     cards_payload.append(
                         {
-                            # Required + must be unique; negative placeholders are fine for creation.
                             "id": -(idx + 1),
                             "card_id": card_id,
                             "col": place["col"],
@@ -495,7 +505,7 @@ class MetabaseService:
                             "size_x": place["size_x"],
                             "size_y": place["size_y"],
                             "parameter_mappings": [],
-                            "visualization_settings": {},
+                            "visualization_settings": card_viz_settings,
                             "series": [],
                         }
                     )
@@ -524,23 +534,35 @@ class MetabaseService:
                     logger.warning(f"[Metabase] Dashboard verification failed: {e}")
 
             # 4. Create public link so no login is required
+            public_uuid = None
             public_url = None
-            try:
-                pub_resp = await client.post(
-                    f"{self.base_url}/api/dashboard/{dash_id}/public_link",
-                    headers=headers,
-                    timeout=10.0,
-                )
-                if pub_resp.status_code == 200:
-                    public_uuid = pub_resp.json().get("uuid")
-                    if public_uuid:
-                        public_url = f"{self.base_url}/public/dashboard/{public_uuid}"
-                        logger.info(f"[Metabase] Public dashboard URL: {public_url}")
-            except Exception as e:
-                logger.warning(f"[Metabase] Could not create public link: {e}")
-
-            # Return public URL if available, otherwise fall back to authenticated URL
-            return public_url or f"{self.base_url}/dashboard/{dash_id}"
+            for attempt in range(3):
+                try:
+                    pub_resp = await client.post(
+                        f"{self.base_url}/api/dashboard/{dash_id}/public_link",
+                        headers=headers,
+                        timeout=10.0,
+                    )
+                    if pub_resp.status_code == 200:
+                        public_uuid = pub_resp.json().get("uuid")
+                        if public_uuid:
+                            public_url = f"{self.base_url}/public/dashboard/{public_uuid}"
+                            logger.info(f"[Metabase] Public dashboard generated on attempt {attempt+1}: {public_url}")
+                            break
+                    
+                    if attempt < 2:
+                        logger.warning(f"[Metabase] Public link creation attempt {attempt+1} failed ({pub_resp.status_code}). Retrying...")
+                        await asyncio.sleep(1.5) # Wait for Metabase to settle
+                except Exception as e:
+                    if attempt < 2:
+                        await asyncio.sleep(1.5)
+                        continue
+                    logger.error(f"[Metabase] Public link creation error: {str(e)}")
+            # CRITICAL: We MUST have a public URL for the proxy to work.
+            if not public_url:
+                logger.error("[Metabase] All attempts to create public link failed.")
+            
+            return public_url
 
     def _map_chart_type(self, ct: str) -> str:
         mapping = {
@@ -554,84 +576,132 @@ class MetabaseService:
         }
         return mapping.get(ct, "bar")
 
-    def _infer_visualization_settings(self, chart_type: str, sql: str) -> dict:
+    # Premium Strategic Palette: Red & Slates
+    _COLOR_PALETTE = [
+        "#ef4444", # Strategic Red
+        "#1e293b", # Deep Slate
+        "#f87171", # Light Red
+        "#64748b", # Medium Slate
+        "#b91c1c", # Crimson
+        "#94a3b8", # Blue Slate
+        "#dc2626", # Vibrant Red
+        "#475569", # Slate Gray
+        "#fca5a5", # Rose Red
+        "#334155", # Cool Slate
+        "#991b1b", # Dark Red
+        "#cbd5e1", # Light Slate
+    ]
+
+    def _get_card_color(self, card_index: int) -> str:
+        """Return a color from the palette based on card index."""
+        return self._COLOR_PALETTE[card_index % len(self._COLOR_PALETTE)]
+
+    def _infer_visualization_settings(self, chart_type: str, sql: str, card_index: int = 0) -> dict:
         """Infer visualization settings from chart type and SQL query.
-        
+
         For bar, line, area charts, Metabase needs to know which columns to use
-        for x-axis (dimensions) and y-axis (metrics).
+        for x-axis (dimensions) and y-axis (metrics). Also applies custom colors.
         """
-        settings = {}
-        
+        import re
+
+        settings: dict = {}
+        color = self._get_card_color(card_index)
+
+        def _extract_aliases(sql_text: str) -> list[str]:
+            select_match = re.search(r"SELECT\s+(.*?)\s+FROM", sql_text, re.IGNORECASE | re.DOTALL)
+            if not select_match:
+                return []
+            columns_part = select_match.group(1)
+            aliases = re.findall(r'\bAS\s+(\w+)\b', columns_part, re.IGNORECASE)
+            if aliases:
+                return aliases
+            parts = columns_part.split(",")
+            result = []
+            skip_words = {'count', 'sum', 'avg', 'min', 'max', 'date', 'substr', 'cast', 'real'}
+            for part in parts:
+                words = re.findall(r'\b(\w+)\b', part.strip())
+                for w in reversed(words or []):
+                    if w.lower() not in skip_words:
+                        result.append(w)
+                        break
+            return result
+
         if chart_type in ("bar", "line", "area"):
-            # Try to extract column names from SQL
-            # Look for column aliases after AS keyword
-            import re
-            
-            # Find SELECT ... FROM pattern and extract columns
-            select_match = re.search(
-                r"SELECT\s+(.*?)\s+FROM",
-                sql,
-                re.IGNORECASE | re.DOTALL
-            )
-            
-            if select_match:
-                columns_part = select_match.group(1)
-                # Extract aliases (AS alias or just alias after expression)
-                aliases = []
-                
-                # Pattern for "AS alias" or "as alias"
-                as_pattern = re.findall(r'\bAS\s+(\w+)\b', columns_part, re.IGNORECASE)
-                aliases.extend(as_pattern)
-                
-                # If no AS aliases found, try to extract simple column names
-                if not aliases:
-                    # Split by comma and clean up
-                    parts = columns_part.split(",")
-                    for part in parts:
-                        part = part.strip()
-                        # Remove function calls and get the last word as potential alias
-                        words = re.findall(r'\b(\w+)\b', part)
-                        if words:
-                            # Skip SQL keywords
-                            skip_words = {'count', 'sum', 'avg', 'min', 'max', 'date', 'substr', 'cast', 'real'}
-                            for w in reversed(words):
-                                if w.lower() not in skip_words:
-                                    aliases.append(w)
-                                    break
-                
-                if len(aliases) >= 2:
-                    # First column is typically x-axis (dimension), rest are y-axis (metrics)
-                    settings["graph.dimensions"] = [aliases[0]]
-                    settings["graph.metrics"] = aliases[1:]
-                elif len(aliases) == 1:
-                    # Single column - use as metric
-                    settings["graph.metrics"] = [aliases[0]]
-            
-            # Default fallback if we couldn't parse
+            aliases = _extract_aliases(sql)
+            if len(aliases) >= 2:
+                settings["graph.dimensions"] = [aliases[0]]
+                settings["graph.metrics"] = aliases[1:]
+            elif len(aliases) == 1:
+                settings["graph.metrics"] = [aliases[0]]
+
             if not settings.get("graph.dimensions"):
                 settings["graph.dimensions"] = ["day"]
             if not settings.get("graph.metrics"):
                 settings["graph.metrics"] = ["count"]
+
+            # Apply color and style to series
+            metric_cols = settings.get("graph.metrics", [])
+            if metric_cols:
+                series_colors = {}
+                series_settings = {}
+                for i, col in enumerate(metric_cols):
+                    # Default color
+                    main_color = self._COLOR_PALETTE[(card_index + i) % len(self._COLOR_PALETTE)]
+                    series_settings[col] = {"color": main_color}
+                    
+                    # Special styling for "Target" or "Goal" columns
+                    if col.lower() in ("target", "goal", "benchmark"):
+                        series_settings[col]["line_style"] = "dash"
+                        series_settings[col]["color"] = "#94a3b8" # Neutral slate for benchmark
+                        series_settings[col]["display"] = "line" # Force line even if chart is area/bar
+
+                settings["series_settings"] = series_settings
                 
+                # High-Contrast Axis Styling
+                settings["graph.x_axis.colors"] = ["#1e293b"]
+                settings["graph.y_axis.colors"] = ["#1e293b"]
+                settings["graph.grid_color"] = "#f1f5f9"
+
+            # Smooth lines and markers for line/area charts for a premium look
+            if chart_type in ("line", "area"):
+                settings["line.interpolate"] = "cardinal"
+                settings["line.marker_enabled"] = True
+                settings["line.marker_style"] = "circle"
+                settings["graph.show_values"] = False
+                
+                # Area charts look amazing when stacked, UNLESS we have a target line
+                has_target = any(c.lower() in ("target", "goal", "benchmark") for c in metric_cols)
+                if chart_type == "area" and not has_target:
+                    settings["stackable.stack_type"] = "stacked"
+                else:
+                    settings["stackable.stack_type"] = None
+
         elif chart_type == "pie":
-            # Pie charts need a dimension and metric
-            import re
-            select_match = re.search(
-                r"SELECT\s+(.*?)\s+FROM",
-                sql,
-                re.IGNORECASE | re.DOTALL
-            )
-            if select_match:
-                columns_part = select_match.group(1)
-                as_pattern = re.findall(r'\bAS\s+(\w+)\b', columns_part, re.IGNORECASE)
-                if len(as_pattern) >= 2:
-                    settings["pie.dimension"] = as_pattern[0]
-                    settings["pie.metric"] = as_pattern[1]
-        
+            aliases = _extract_aliases(sql)
+            if len(aliases) >= 2:
+                settings["pie.dimension"] = aliases[0]
+                settings["pie.metric"] = aliases[1]
+            # Pie-specific: use vibrant slice colors
+            settings["pie.colors"] = {
+                str(i): self._COLOR_PALETTE[i % len(self._COLOR_PALETTE)]
+                for i in range(12)
+            }
+
         elif chart_type == "scalar":
-            # Scalar charts just need to show a single value
             settings["scalar.field"] = "value"
-        
+
+        elif chart_type == "row":
+            aliases = _extract_aliases(sql)
+            if len(aliases) >= 2:
+                settings["graph.dimensions"] = [aliases[0]]
+                settings["graph.metrics"] = aliases[1:]
+            metric_cols = settings.get("graph.metrics", [])
+            if metric_cols:
+                settings["series_settings"] = {
+                    col: {"color": self._COLOR_PALETTE[(card_index + i) % len(self._COLOR_PALETTE)]}
+                    for i, col in enumerate(metric_cols)
+                }
+
         return settings
 
 metabase_service = MetabaseService()

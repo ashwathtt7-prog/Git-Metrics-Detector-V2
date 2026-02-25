@@ -2,9 +2,12 @@ from typing import List
 import json
 import importlib
 import inspect
-from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Response
+from fastapi.responses import HTMLResponse
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
+from sqlalchemy.orm import selectinload
 from ..database import get_session
 from ..config import settings
 from ..schemas import AnalyzeRequest, JobResponse, JobMetricsResponse, MetricResponse, MetricEntryResponse
@@ -201,6 +204,7 @@ async def get_job_metrics(job_id: str, session: AsyncSession = Depends(get_sessi
                     suggested_source=m.suggested_source, display_order=m.display_order,
                     created_at=m.created_at,
                     source_table=m.source_table, source_platform=m.source_platform,
+                    insights=m.insights,
                     entries=entries
                 )
             )
@@ -210,6 +214,77 @@ async def get_job_metrics(job_id: str, session: AsyncSession = Depends(get_sessi
         metrics=metrics,
         workspace_id=job.workspace_id,
     )
+
+@router.post("/metrics/{metric_id}/insights")
+async def generate_single_metric_insights(
+    metric_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Generate detailed business insights for a single metric on demand."""
+    metric = await session.get(Metric, metric_id)
+    if not metric:
+        raise HTTPException(status_code=404, detail="Metric not found")
+
+    # If already has insights, return them
+    if metric.insights:
+        return {"status": "cached", "insights": json.loads(metric.insights)}
+
+    # Need workspace context for project
+    ws = await session.get(Workspace, metric.workspace_id)
+    project_summary = {}
+    if ws:
+        project_summary = {
+            "project_name": ws.name,
+            "description": ws.description or "",
+        }
+
+    # Gather all metrics in the workspace for correlation context (include evidence for rich insights)
+    res = await session.execute(select(Metric).where(Metric.workspace_id == metric.workspace_id))
+    all_metrics = res.scalars().all()
+    metrics_data = [
+        {
+            "id": m.id,
+            "name": m.name,
+            "description": m.description,
+            "category": m.category,
+            "data_type": m.data_type,
+            "suggested_source": m.suggested_source,
+            "source_table": m.source_table,
+            "source_platform": m.source_platform,
+            "evidence": json.loads(m.evidence) if m.evidence else [],
+        }
+        for m in all_metrics
+    ]
+
+    try:
+        insights_list = await llm_service.generate_metric_insights(metrics_data, project_summary)
+
+        # Store insights for ALL metrics in the workspace (batch benefit)
+        def _norm(s: str) -> str:
+            return "".join(ch.lower() for ch in s.strip() if ch.isalnum())
+
+        insights_by_name = {}
+        for ins in insights_list:
+            if isinstance(ins, dict) and ins.get("metric_name"):
+                insights_by_name[_norm(ins["metric_name"])] = ins
+
+        for m in all_metrics:
+            key = _norm(m.name)
+            if key in insights_by_name:
+                m.insights = json.dumps(insights_by_name[key])
+
+        await session.commit()
+
+        # Return the requested metric's insights
+        target_key = _norm(metric.name)
+        if target_key in insights_by_name:
+            return {"status": "generated", "insights": insights_by_name[target_key]}
+        else:
+            return {"status": "generated", "insights": None}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Insight generation failed: {str(e)}")
+
 
 @router.post("/workspaces/{workspace_id}/mock-data")
 async def generate_more_mock_data(
@@ -392,8 +467,9 @@ async def get_metabase_plan(
             mb_url = await metabase_service.create_dashboard(ws.name, mb_db_id, plan_data, workspace_id=workspace_id)
             if mb_url:
                 plan_data["metabase_url"] = mb_url
-                if "metabase_error" in plan_data:
-                    plan_data.pop("metabase_error", None)
+            
+            if "metabase_error" in plan_data and mb_url:
+                plan_data.pop("metabase_error", None)
             else:
                 metabase_error = "Metabase dashboard creation returned no URL."
         else:
@@ -410,3 +486,179 @@ async def get_metabase_plan(
     ws.dashboard_config = json.dumps(plan_data)
     await session.commit()
     return plan_data
+
+
+@router.get("/workspaces/{workspace_id}/dashboard-data")
+async def get_dashboard_data(
+    workspace_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Return all metric data formatted for React Recharts dashboard."""
+    ws = await session.get(Workspace, workspace_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    res = await session.execute(
+        select(Metric)
+        .where(Metric.workspace_id == workspace_id)
+        .options(selectinload(Metric.entries))
+        .order_by(Metric.display_order)
+    )
+    metrics = res.scalars().all()
+
+    # Build chart-ready data for each metric
+    charts = []
+    category_counts: dict[str, int] = {}
+    total_entries = 0
+
+    for m in metrics:
+        cat = m.category or "other"
+        category_counts[cat] = category_counts.get(cat, 0) + 1
+
+        entries_data = []
+        for e in sorted(m.entries, key=lambda x: x.recorded_at):
+            # Try to parse value as number for charting
+            try:
+                val = float(e.value)
+            except (ValueError, TypeError):
+                val = e.value
+            entries_data.append({
+                "date": e.recorded_at[:10] if e.recorded_at else "",
+                "value": val,
+                "notes": e.notes,
+            })
+            total_entries += 1
+
+        # Parse insights if available
+        insights_obj = None
+        if m.insights:
+            try:
+                insights_obj = json.loads(m.insights)
+            except Exception:
+                pass
+
+        charts.append({
+            "id": m.id,
+            "name": m.name,
+            "description": m.description,
+            "category": cat,
+            "data_type": m.data_type,
+            "platform": m.source_platform,
+            "source": m.suggested_source,
+            "entries": entries_data,
+            "entry_count": len(entries_data),
+            "insights": insights_obj,
+            "latest_value": entries_data[-1]["value"] if entries_data else None,
+        })
+
+    # Category distribution for pie chart
+    category_distribution = [
+        {"name": cat, "value": count}
+        for cat, count in category_counts.items()
+    ]
+
+    # Metabase URL if available
+    metabase_url = None
+    if ws.dashboard_config:
+        try:
+            cfg = json.loads(ws.dashboard_config)
+            metabase_url = cfg.get("metabase_url")
+        except Exception:
+            pass
+
+    return {
+        "workspace": {
+            "id": ws.id,
+            "name": ws.name,
+            "repo_url": ws.repo_url,
+            "description": ws.description,
+        },
+        "summary": {
+            "total_metrics": len(metrics),
+            "total_entries": total_entries,
+            "categories": category_counts,
+        },
+        "category_distribution": category_distribution,
+        "charts": charts,
+        "metabase_url": metabase_url,
+    }
+
+
+@router.get("/metabase-view/{uuid}", response_class=HTMLResponse)
+async def metabase_proxy(uuid: str):
+    """
+    Backend Proxy for Metabase Public Dashboards.
+    This allows us to inject custom CSS to fix the 'white background' problem
+    and apply our premium Red & White aesthetic.
+    """
+    from ..services.metabase_service import metabase_service
+    base_url = metabase_service.base_url.rstrip("/")
+    target_url = f"{base_url}/public/dashboard/{uuid}"
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(target_url, follow_redirects=True, timeout=10.0)
+            if resp.status_code != 200:
+                return f"<h1>Metabase Offline</h1><p>Status: {resp.status_code}</p>"
+            
+            html = resp.text
+            
+            custom_head = f"""
+            <base href="{base_url}/">
+            <style>
+                /* Aggressive Background Overrides for Metabase OSS */
+                html, body, #root, .EmbedFrame, .Dashboard, .Dashboard-container, 
+                .public-dashboard, .DashboardGrid, .PinnedSection, .Scalar, .TableInteractive,
+                .application, .scroll-shadow-container, .scroll-view {{
+                    background: radial-gradient(circle at 20% 20%, #fffafa, transparent),
+                                radial-gradient(circle at 80% 80%, #fff5f5, transparent),
+                                #ffffff !important;
+                    background-attachment: fixed !important;
+                    background-color: #ffffff !important;
+                }}
+
+                /* Remove Metabase's hardcoded background colors on sections */
+                .css-1f9v8u0, .css-1v0u0wz, .css-14v0u0wz, div[class^="css-"], header, nav {{
+                    background-color: transparent !important;
+                }}
+
+                /* Refined Premium Card Shadows (Red Tint) */
+                .DashCard, .Card, .cell {{
+                    background-color: #ffffff !important;
+                    border-radius: 16px !important;
+                    box-shadow: 0 10px 25px -5px rgba(220, 38, 38, 0.06) !important;
+                    border: 1px solid rgba(220, 38, 38, 0.08) !important;
+                    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                }}
+                .DashCard:hover, .Card:hover {{
+                    transform: translateY(-4px) !important;
+                    box-shadow: 0 20px 35px -10px rgba(220, 38, 38, 0.12) !important;
+                    border-color: rgba(220, 38, 38, 0.2) !important;
+                }}
+
+                /* Force Text and Axis Legibility */
+                .axis line, .axis path, .grid line {{
+                    stroke: #f1f5f9 !important;
+                }}
+                text {{ fill: #475569 !important; }}
+
+                /* UI Cleanup */
+                .EmbedFooter, .EmbedHeader, .Nav {{ display: none !important; }}
+                .Header {{ background: transparent !important; border-bottom: none !important; box-shadow: none !important; }}
+                
+                /* Selection/Scroll refinement */
+                ::selection {{ background: #fee2e2; color: #b91c1c; }}
+            </style>
+            """
+            
+            # Use a more reliable injection point: at the beginning of the <head> segment
+            if "<head>" in html:
+                html = html.replace("<head>", f"<head>{custom_head}")
+            elif "</head>" in html:
+                html = html.replace("</head>", f"{custom_head}</head>")
+            else:
+                html = custom_head + html
+                
+            return html
+        except Exception as e:
+            return f"<h1>Proxy Error</h1><p>{str(e)}</p>"

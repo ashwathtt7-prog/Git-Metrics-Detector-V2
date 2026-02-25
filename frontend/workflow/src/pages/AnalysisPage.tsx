@@ -14,6 +14,7 @@ export default function AnalysisPage() {
   const [metrics, setMetrics] = useState<Metric[]>([]);
   const [error, setError] = useState('');
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
+  const [repoError, setRepoError] = useState(false);
   const [hasMockData, setHasMockData] = useState(false);
   const metricsLoadedRef = useRef(false);
 
@@ -47,12 +48,14 @@ export default function AnalysisPage() {
     }
 
     const token = localStorage.getItem('github_token');
-    if (token) {
-      listUserRepos(token).then(data => {
-        setRepos(data);
-        localStorage.setItem('github_repos_cache', JSON.stringify(data));
-      }).catch(console.error);
-    }
+    listUserRepos(token || '').then(data => {
+      setRepos(data);
+      setRepoError(false);
+      localStorage.setItem('github_repos_cache', JSON.stringify(data));
+    }).catch(err => {
+      console.error('[AnalysisPage] Repo fetch error:', err);
+      setRepoError(true);
+    });
 
 
 
@@ -95,10 +98,24 @@ export default function AnalysisPage() {
       }
     };
 
+    const onTokenChanged = () => {
+      const newToken = localStorage.getItem('github_token');
+      listUserRepos(newToken || '').then(data => {
+        setRepos(data);
+        setRepoError(false);
+      }).catch(err => {
+        console.error(err);
+        setRepoError(true);
+      });
+    };
+
+    window.addEventListener('github-token-changed', onTokenChanged);
+
     poll();
     return () => {
       active = false;
       clearTimeout(timeoutId);
+      window.removeEventListener('github-token-changed', onTokenChanged);
     };
   }, [jobId, navigate]);
 
@@ -244,14 +261,18 @@ export default function AnalysisPage() {
       {/* Form at the top (as seen in wireframe) */}
       <header className="content-header">
         <h1>New Repository Analysis</h1>
-        <p>Select a local repository or provide an external URL to begin deep metrics detection.</p>
+        <p>Choose one of your repositories or provide an external GitHub URL to begin deep metrics detection.</p>
       </header>
 
       <div className="analysis-form-row">
         <div className="form-group">
-          <label>Choose Repository ({repos.length})</label>
+          <label style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Choose Repository ({repos.length})</span>
+            {repoError && <span style={{ color: '#ef4444', fontSize: '0.7rem' }}>Failed to load list</span>}
+          </label>
           <select
             className="input-control"
+            style={repoError ? { borderColor: '#fecaca' } : {}}
             onChange={(e) => {
               if (e.target.value) {
                 // If user selects a repo, auto-fill it into the input or handle navigation
@@ -348,9 +369,11 @@ export default function AnalysisPage() {
             <button
               className="btn-analyze"
               style={{ width: '100%' }}
-              onClick={async () => {
+              onClick={() => {
                 setShowSuccessModal(false);
-                await handleMetabaseClick();
+                if (job?.workspace_id) {
+                  window.open(`http://localhost:3002/dashboard/${job.workspace_id}`, '_blank');
+                }
               }}
             >
               Continue to Dashboard

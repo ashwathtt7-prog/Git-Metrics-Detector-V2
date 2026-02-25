@@ -414,7 +414,7 @@ def _parse_json_with_thought(raw: str) -> tuple[dict, str]:
                 pass
 
     # Even more desperate: try to find "mock_data": [...] or "metrics": [...]
-    for key in ["mock_data", "metrics", "cards"]:
+    for key in ["mock_data", "metrics", "cards", "insights"]:
         match = re.search(rf'"{key}"\s*:\s*(\[[\s\S]*\])', clean_raw)
         if match:
             try:
@@ -640,7 +640,13 @@ Respond in the following JSON format exactly:
       "suggested_source": "string describing where to measure this",
       "source_table": "string - the specific database table, API endpoint, or data collection",
       "source_platform": "string - the infrastructure platform (e.g., GCP, AWS, Oracle, PostgreSQL, MongoDB)",
-      "estimated_value": "string or number"
+      "estimated_value": "string or number",
+      "evidence": [
+        {{
+          "path": "file path / endpoint / table name",
+          "signal": "what was seen there"
+        }}
+      ]
     }}
   ]
 }}"""
@@ -991,73 +997,61 @@ async def generate_dashboard_plan(metrics: list[dict], workspace_name: str, work
     """Ask the LLM to plan a Metabase dashboard: decide chart types and write SQL queries."""
     metrics_str = json.dumps(metrics, indent=2)
 
-    prompt = f"""You are an expert data analyst and dashboard designer. You need to plan a Metabase dashboard for the workspace "{workspace_name}".
+    prompt = f"""You are a world-class Data UI/UX Designer specialized in "High-Tech Cyberpunk Infographics". 
+You need to plan a Metabase dashboard for the workspace "{workspace_name}".
 
-The data is stored in a SQLite database with these tables:
+DESIGN MISSION: 
+Create a hyper-dense, futuristic dashboard with 12-16 cards. It should look like a command center (Reference: High-density neon infographics).
 
-TABLE: metrics
-  - id (TEXT, primary key)
-  - workspace_id (TEXT)
-  - name (TEXT)
-  - description (TEXT)
-  - category (TEXT) -- one of: business, engagement, content, performance, growth
-  - data_type (TEXT) -- one of: number, percentage, boolean, string
-  - suggested_source (TEXT)
-  - source_table (TEXT)
-  - source_platform (TEXT)
-  - display_order (INTEGER)
-  - created_at (TEXT)
+CRITICAL LAYOUT RULES:
+- Use smaller cards: `size_x` should mostly be 4, 6, or 8 to allow 3-4 charts per row.
+- Information Density: Every chart MUST contain either multi-series data (e.g., Current vs. Prior) or complex trend overlays. Use subqueries for comparisons.
+- Futuristic Naming: Use IDs and Titles that sound like "Cybernetic Overviews" (e.g., "Neural Throughput Index", "Systemic Failure Buffer", "Synaptic Pulse Overlays").
 
-TABLE: metric_entries
-  - id (TEXT, primary key)
-  - metric_id (TEXT, foreign key to metrics.id)
-  - value (TEXT) -- the value as a string
-  - recorded_at (TEXT) -- ISO timestamp
-  - notes (TEXT)
+CHART VARIETY:
+- **Neon Pulsations (line/area)**: For any temporal data. Overlay 2-3 related metrics in one card for depth. Use smooth lines.
+- **Status Arrays (scalar)**: For the most vital 4-5 KPIs at the top (size_x: 4 each). Use subqueries to show "% Change from Prior Period".
+- **Distribution Matrices (pie/bar)**: For categorical comparisons.
+- **Quantum Flux (row/table)**: For detailed rankings or recent activity logs.
 
-The workspace_id for this workspace is: "{workspace_id}"
+TABLE SCHEMA info for SQL generation:
+- Table `metrics`: `id` (UUID), `name` (TEXT), `category` (TEXT), `workspace_id` (UUID)
+- Table `metric_entries`: `id` (UUID), `metric_id` (UUID), `value` (TEXT - numerical strings), `recorded_at` (DATETIME)
+- The workspace_id for this workspace is: "{workspace_id}"
 
 METRICS FOR THIS WORKSPACE:
 {metrics_str}
 
-Design a dashboard with 5-10 charts. For each chart, decide:
-1. The best visualization type based on what the metric represents
-2. A SQL query that extracts the right data from the tables above
-3. A descriptive title
-
-Available chart types: bar, line, pie, scalar, area, row, table
-
-Respond in the following format:
+Respond in EXACTLY this JSON format:
 ```json
 {{
   "trace": {{
-    "design_choices": ["3-8 short, concrete design choices tied to specific metrics"],
-    "sql_notes": ["0-5 important SQL assumptions (optional)"]
+    "design_choices": ["5-10 specific visual strategy notes"],
+    "cyberpunk_logic": "Explain the thematic naming approach"
   }},
-  "dashboard_name": "string - a descriptive name for the dashboard",
-  "description": "string - brief description",
+  "dashboard_name": "NEURAL OVERDRIVE: {workspace_name}",
+  "description": "High-density technical telemetry and predictive indicators.",
   "cards": [
     {{
-      "title": "string - chart title",
+      "title": "CYBER TITLE",
       "chart_type": "bar|line|pie|scalar|area|row|table",
-      "sql": "string - the SQL query (use SQLite syntax). Always filter by workspace_id = '{workspace_id}' when joining metrics table.",
-      "size_x": 12,
-      "size_y": 6,
-      "description": "brief description of what this chart shows"
+      "sql": "SQLite SQL - JOIN metric_entries me JOIN metrics m ON me.metric_id = m.id WHERE m.workspace_id = '{workspace_id}'. IMPORTANT: Use names from the metrics list provided.",
+      "size_x": 4|6|8|12,
+      "size_y": 4|6|8,
+      "description": "internal engineering note"
     }}
   ]
 }}
+```
 
-IMPORTANT SQL NOTES:
-- Always JOIN metric_entries with metrics ON metric_entries.metric_id = metrics.id
-- Always filter with metrics.workspace_id = '{workspace_id}'
-- For scalar charts (single number), use aggregations like COUNT, AVG, SUM
-- For time series (line/area), group by date using substr(metric_entries.recorded_at, 1, 10)
-- For category distribution (pie), group by metrics.category
-- Cast value to numeric when needed: CAST(metric_entries.value AS REAL)
-- Use descriptive column aliases
+SQL PERFORMANCE TIPS:
+- Use `AVG(CAST(me.value AS REAL))` for numeric trends.
+- Use `(SELECT AVG(...) FROM ...) AS target` to add a secondary goal line.
+- Use `GROUP BY day` where `day` is `substr(me.recorded_at, 1, 10)`.
+- Always filter by `m.workspace_id = '{workspace_id}'`.
+- Use `ORDER BY day ASC` for any time series.
+"""
 
-Design the dashboard to be insightful and specific to these metrics. Group related charts together."""
 
     def fallback_plan() -> tuple[dict, dict]:
         plan = {
@@ -1176,3 +1170,170 @@ Respond as JSON:
         logger.warning(f"[FirstImpressions] LLM failed, using fallback: {type(e).__name__}: {str(e)[:200]}")
         trace = {"fallback": True, "top_level_signals": [p for p in (file_tree or [])[:25] if isinstance(p, str)]}
         return "I see a repository tree sample, but the LLM impression call failed; continuing without it.", trace
+
+
+async def generate_metric_insights(
+    metrics: list[dict],
+    project_summary: dict,
+    model: str | None = None,
+) -> list[dict]:
+    """Generate detailed, UNIQUE business insights for each metric.
+
+    Returns a list of dicts: [{"metric_name": ..., "insights": {...}}, ...]
+    Each insights object has: business_context, why_it_matters, recommended_targets,
+    correlations, improvement_strategies, stakeholders, risk_signals.
+    """
+
+    # Build rich per-metric context blocks so the LLM truly differentiates them
+    metric_blocks = []
+    for i, m in enumerate(metrics):
+        block = f"""--- Metric #{i+1} ---
+Name: {m.get('name', 'Unknown')}
+Category: {m.get('category', 'general')}
+Data Type: {m.get('data_type', 'number')}
+Description: {m.get('description', 'N/A')}
+Suggested Source: {m.get('suggested_source', 'N/A')}
+Source Table/File: {m.get('source_table', 'N/A')}
+Platform: {m.get('source_platform', 'N/A')}"""
+        evidence = m.get("evidence")
+        if evidence and isinstance(evidence, list) and len(evidence) > 0:
+            evidence_str = "\n".join(f"  - {e}" for e in evidence[:15])
+            block += f"\nCodebase Evidence (files/patterns that led to this metric's discovery):\n{evidence_str}"
+        elif evidence and isinstance(evidence, str):
+            block += f"\nCodebase Evidence: {evidence[:500]}"
+        metric_blocks.append(block)
+
+    all_metrics_text = "\n\n".join(metric_blocks)
+    summary_str = json.dumps(project_summary, indent=2)
+    all_metric_names = [m.get("name", "Unknown") for m in metrics]
+
+    prompt = f"""You are a world-class business intelligence analyst and software architect. You have been given metrics that were discovered by scanning a real GitHub codebase.
+
+PROJECT CONTEXT:
+{summary_str}
+
+ALL DISCOVERED METRICS (for cross-reference):
+{json.dumps(all_metric_names)}
+
+DETAILED METRIC DATA:
+{all_metrics_text}
+
+YOUR TASK: For EACH metric above, produce a COMPLETELY UNIQUE, deeply specific analysis. This is NOT boilerplate — you must use the actual metric description, the codebase evidence files, and the project domain to write insights that could ONLY apply to THIS particular metric in THIS particular project.
+
+CRITICAL RULES:
+1. NO TWO METRICS should share similar sentences. Every field must be metric-specific.
+2. Use the "Codebase Evidence" to reference actual files, patterns, tables, or modules found in the repo.
+3. For "recommended_targets", provide REAL numeric ranges or concrete conditions relevant to the metric's data_type and domain (e.g., "< 200ms for API latency", "> 95% for test coverage", "< 50 for uncovered regions").
+4. For "correlations", reference OTHER metrics from the list BY NAME with a specific causal explanation.
+5. For "improvement_strategies", give concrete engineering actions (e.g., "Add index on coverage_gap_report.pin_code column", "Implement caching layer for demand aggregation queries").
+6. For "risk_signals", describe the SPECIFIC business failure scenario for THIS metric.
+7. For "technical_intel", reference the actual codebase files/patterns from evidence and explain the architectural implications.
+
+Respond ONLY with valid JSON (no markdown fences):
+{{
+  "trace": {{
+    "analysis_approach": "1 sentence on the domain-specific lens you applied"
+  }},
+  "insights": [
+    {{
+      "metric_name": "exact name from the metrics list",
+      "context_title": "A specific strategic context title unique to this metric, e.g. 'Service Coverage Gap Intelligence' not 'Business Architecture Insight'",
+      "context_description": "5-7 sentences: deeply specific analysis referencing the metric's actual data source, what it measures in this project's domain, and why this specific signal matters. Reference the evidence files.",
+      "impact_analysis": "3-4 sentences: the concrete business consequence if this metric deteriorates — reference specific stakeholders and downstream effects unique to this metric.",
+      "recommended_targets": {{
+        "healthy": "Concrete threshold with justification, e.g. '< 30 uncovered PIN codes — indicates strong provider network expansion'",
+        "warning": "Concrete threshold with justification, e.g. '30-100 uncovered PIN codes — coverage gaps emerging in tier-2 cities'",
+        "critical": "Concrete threshold with justification, e.g. '> 100 uncovered PIN codes — significant revenue leakage and customer churn risk'"
+      }},
+      "correlations": ["Reference OTHER metric names with specific causal links, e.g. 'When Total Demand Requests rises but this metric stays flat, it signals unmet demand in new regions'"],
+      "improvement_strategies": ["3-4 concrete engineering or business actions specific to this metric, referencing actual data sources and files from the evidence"],
+      "risk_signals": "2-3 sentences describing the specific failure mode: what breaks, who is affected, and what the cascading impact looks like for THIS metric.",
+      "technical_intel": "A detailed paragraph referencing the actual codebase patterns, files, and architecture discovered. Explain how the metric is derived from the code and what architectural decisions affect it."
+    }}
+  ]
+}}
+
+Remember: EVERY field must be unique per metric. Generic phrases like 'impacts business stability' or 'influences related telemetry patterns' are FORBIDDEN."""
+
+    def fallback_insights() -> list[dict]:
+        """Generate unique fallback insights using metric-specific data."""
+        results = []
+        all_names = [m.get("name", "Unknown") for m in metrics]
+        for i, m in enumerate(metrics):
+            name = m.get("name", "Unknown")
+            cat = m.get("category", "general")
+            desc = m.get("description", "No description available")
+            src = m.get("suggested_source", "")
+            table = m.get("source_table", "")
+            platform = m.get("source_platform", "")
+            evidence = m.get("evidence", [])
+            evidence_str = ", ".join(str(e) for e in (evidence if isinstance(evidence, list) else [])[:5]) if evidence else "no specific files identified"
+            dtype = m.get("data_type", "number")
+
+            # Build correlation references to other metrics
+            other_metrics = [n for j, n in enumerate(all_names) if j != i]
+            corr_sample = other_metrics[:3] if other_metrics else ["related system metrics"]
+
+            results.append({
+                "metric_name": name,
+                "context_title": f"{name} — {cat.title()} Signal Analysis",
+                "context_description": (
+                    f"This metric tracks: {desc}. "
+                    f"It was discovered by analyzing {evidence_str} in the codebase. "
+                    f"The data is sourced from {src or table or platform or 'the application database'} "
+                    f"and is categorized as a {cat} metric with data type '{dtype}'. "
+                    f"In the context of this project, monitoring {name} provides visibility into "
+                    f"{'operational coverage and service availability' if cat == 'business' else 'system performance and user experience'}. "
+                    f"Changes in this metric directly reflect the health of the underlying data pipeline."
+                ),
+                "impact_analysis": (
+                    f"If {name} degrades, the immediate impact is on {desc.lower() if desc else 'the tracked business process'}. "
+                    f"Stakeholders relying on {platform or 'this data source'} will see delayed or inaccurate reporting. "
+                    f"This can cascade into poor decision-making for teams monitoring {cat} metrics."
+                ),
+                "recommended_targets": {
+                    "healthy": f"Within expected range for {name} based on historical data — stable trend with < 5% variance",
+                    "warning": f"{name} deviating 5-15% from baseline — investigate {src or table or 'data source'} for anomalies",
+                    "critical": f"{name} deviating > 15% from baseline — immediate review of {evidence_str} required",
+                },
+                "correlations": [
+                    f"Changes in {name} often correlate with shifts in {corr_sample[0]}" + (f" and {corr_sample[1]}" if len(corr_sample) > 1 else ""),
+                    f"Monitor {corr_sample[-1]} alongside this metric for a complete picture of {cat} health",
+                ],
+                "improvement_strategies": [
+                    f"Automate data collection for {name} from {src or table or 'the primary data source'} to reduce manual lag",
+                    f"Add alerting thresholds in the monitoring pipeline for {name} based on rolling 7-day averages",
+                    f"Review {evidence_str} for optimization opportunities that could improve this metric's accuracy",
+                ],
+                "risk_signals": (
+                    f"If {name} is not monitored, gaps in {desc.lower() if desc else 'this business process'} "
+                    f"could go undetected. This is especially critical when {corr_sample[0]} is also trending negatively, "
+                    f"as it may indicate a systemic issue in the {cat} domain."
+                ),
+                "technical_intel": (
+                    f"This metric was identified from patterns in: {evidence_str}. "
+                    f"The data pipeline reads from {src or table or platform or 'the application database'} "
+                    f"and the metric's {dtype} data type suggests {'aggregation-based computation' if dtype == 'number' else 'categorical or text-based tracking'}. "
+                    f"Architectural improvements to the data ingestion layer for {name} would improve both accuracy and latency of this signal."
+                ),
+            })
+        return results
+
+    try:
+        raw = await _call_llm(prompt, model=model)
+        result, trace = _parse_json_with_trace(raw)
+        insights_list = []
+        if isinstance(result, dict):
+            insights_list = result.get("insights", [])
+        if not insights_list or not isinstance(insights_list, list):
+            logger.warning("[MetricInsights] LLM returned no insights list, using fallback")
+            return fallback_insights()
+        # Validate that insights are actually unique (basic check)
+        descriptions = [ins.get("context_description", "") for ins in insights_list if isinstance(ins, dict)]
+        if len(set(descriptions)) < len(descriptions) * 0.5:
+            logger.warning("[MetricInsights] LLM returned too many duplicate insights, using fallback")
+            return fallback_insights()
+        return insights_list
+    except Exception as e:
+        logger.warning(f"[MetricInsights] LLM failed, using fallback: {type(e).__name__}: {str(e)[:200]}")
+        return fallback_insights()

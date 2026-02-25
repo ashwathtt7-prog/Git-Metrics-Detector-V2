@@ -53,6 +53,8 @@ class Metric(Base):
     source_platform = Column(Text)
     display_order = Column(Integer, nullable=False, default=0)
     created_at = Column(Text, nullable=False)
+    insights = Column(Text)  # JSON string with business insights, recommendations, context
+    evidence = Column(Text)  # JSON string with paths and signals seen during discovery
 
     workspace = relationship("Workspace", back_populates="metrics")
     entries = relationship("MetricEntry", back_populates="metric", cascade="all, delete-orphan")

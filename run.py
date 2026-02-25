@@ -21,6 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parent
 BACKEND_DIR = REPO_ROOT / "backend"
 FRONTEND_WORKFLOW_DIR = REPO_ROOT / "frontend" / "workflow"
 FRONTEND_DASHBOARD_DIR = REPO_ROOT / "frontend" / "dashboard"
+FRONTEND_VISUALIZATION_DIR = REPO_ROOT / "frontend" / "visualization"
 EVIDENCE_DIR = REPO_ROOT / "evidence"
 LOGS_DIR = REPO_ROOT / "logs"
 PORTABLE_DIR = REPO_ROOT / "portable"
@@ -353,6 +354,8 @@ def main() -> int:
         raise RuntimeError("frontend/workflow/node_modules missing. Run: python install.py")
     if not (FRONTEND_DASHBOARD_DIR / "node_modules").exists():
         raise RuntimeError("frontend/dashboard/node_modules missing. Run: python install.py")
+    if not (FRONTEND_VISUALIZATION_DIR / "node_modules").exists():
+        raise RuntimeError("frontend/visualization/node_modules missing. Run: python install.py")
 
     env_path = BACKEND_DIR / ".env"
     if not env_path.exists():
@@ -390,7 +393,7 @@ def main() -> int:
                         _print(f"NOTE: Port {metabase_port} is busy; using Metabase on {effective_metabase_base}")
                         break
 
-        _print("[1/4] Backend (8001)...")
+        _print("[1/5] Backend (8001)...")
         if backend_running:
             _print("  already running")
         else:
@@ -406,26 +409,33 @@ def main() -> int:
             )
             _wait_url_ok("http://localhost:8001/api/health", timeout_s=args.startup_timeout)
 
-        _print("[2/4] Workflow UI (3001)...")
+        _print("[2/5] Workflow UI (3001)...")
         if _url_reachable("http://localhost:3001"):
             _print("  already running")
         else:
             procs.append(_start_proc([npm_cmd, "run", "dev", "--", "--host", "--port", "3001"], cwd=FRONTEND_WORKFLOW_DIR))
             _wait_url_ok("http://localhost:3001", timeout_s=args.startup_timeout)
 
-        _print("[3/4] Workspaces UI (3000)...")
+        _print("[3/5] Workspaces UI (3000)...")
         if _url_reachable("http://localhost:3000"):
             _print("  already running")
         else:
             procs.append(_start_proc([npm_cmd, "run", "dev", "--", "--host", "--port", "3000"], cwd=FRONTEND_DASHBOARD_DIR))
             _wait_url_ok("http://localhost:3000", timeout_s=args.startup_timeout)
 
+        _print("[4/5] Visualization UI (3002)...")
+        if _url_reachable("http://localhost:3002"):
+            _print("  already running")
+        else:
+            procs.append(_start_proc([npm_cmd, "run", "dev", "--", "--host", "--port", "3002"], cwd=FRONTEND_VISUALIZATION_DIR))
+            _wait_url_ok("http://localhost:3002", timeout_s=args.startup_timeout)
+
         if not args.no_metabase:
             jar = BACKEND_DIR / "metabase.jar"
             if not jar.exists():
                 raise RuntimeError("backend/metabase.jar is missing. Run: python install.py")
 
-            _print("[4/4] Metabase (3003)...")
+            _print("[5/5] Metabase (3003)...")
             effective_props = f"{effective_metabase_base}/api/session/properties"
             if _url_responding(effective_props):
                 _print("  already running")
@@ -486,11 +496,12 @@ def main() -> int:
 
         _print("")
         _print("Ready:")
-        _print("  Workflow:   http://localhost:3001")
-        _print("  Workspaces: http://localhost:3000")
-        _print("  Backend:    http://localhost:8001/docs")
+        _print("  Workflow:      http://localhost:3001")
+        _print("  Workspaces:    http://localhost:3000")
+        _print("  Visualization: http://localhost:3002")
+        _print("  Backend:       http://localhost:8001/docs")
         if not args.no_metabase:
-            _print(f"  Metabase:   {effective_metabase_base}")
+            _print(f"  Metabase:      {effective_metabase_base}")
 
         if args.smoke:
             _print("")

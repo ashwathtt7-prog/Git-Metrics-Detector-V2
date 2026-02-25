@@ -61,3 +61,15 @@ export async function getMetabasePlan(workspaceId: string): Promise<any> {
   if (!res.ok) throw new Error('Failed to fetch Metabase plan');
   return res.json();
 }
+
+export async function getMetricInsights(metricId: string): Promise<any> {
+  const res = await fetch(`${BASE}/metrics/${metricId}/insights`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to generate insights');
+  return res.json();
+}
+
+export async function getDashboardData(workspaceId: string): Promise<any> {
+  const res = await fetch(`${BASE}/workspaces/${workspaceId}/dashboard-data`);
+  if (!res.ok) throw new Error('Failed to fetch dashboard data');
+  return res.json();
+}

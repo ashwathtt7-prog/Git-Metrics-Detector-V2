@@ -27,6 +27,7 @@ export interface Metric {
   source_platform?: string;
   display_order: number;
   created_at: string;
+  insights?: string;
   entries?: MetricEntry[];
 }
 

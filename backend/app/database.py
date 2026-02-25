@@ -28,6 +28,7 @@ async def _migrate(conn):
         ("metrics", "source_platform", "TEXT"),
         ("analysis_jobs", "current_stage", "INTEGER DEFAULT 1"),
         ("analysis_jobs", "logs", "TEXT"),
+        ("metrics", "insights", "TEXT"),
     ]
     for table, column, col_type in migrations:
         try:

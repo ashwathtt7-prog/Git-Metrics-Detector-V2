@@ -1,4 +1,5 @@
-from typing import List
+from __future__ import annotations
+from typing import List, Optional
 import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +23,7 @@ async def list_workspaces(session: AsyncSession = Depends(get_session)):
     )
     workspaces = result.scalars().all()
 
-    def _extract_metabase_url(dashboard_config: str | None) -> str | None:
+    def _extract_metabase_url(dashboard_config):
         if not dashboard_config or not isinstance(dashboard_config, str):
             return None
         s = dashboard_config.strip()
@@ -83,7 +84,7 @@ async def get_workspace(workspace_id: str, session: AsyncSession = Depends(get_s
     entry_count = entry_count_result.scalar() or 0
     has_mock_data = entry_count > 0
 
-    def _extract_metabase_url(dashboard_config: str | None) -> str | None:
+    def _extract_metabase_url(dashboard_config):
         if not dashboard_config or not isinstance(dashboard_config, str):
             return None
         s = dashboard_config.strip()

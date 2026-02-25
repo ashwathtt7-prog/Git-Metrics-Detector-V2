@@ -2,6 +2,7 @@ import type { Metric } from '../types';
 
 interface Props {
   metric: Metric;
+  onClick?: () => void;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -12,18 +13,20 @@ const CATEGORY_COLORS: Record<string, string> = {
   growth: '#dc2626',
 };
 
-export default function MetricCard({ metric }: Props) {
+export default function MetricCard({ metric, onClick }: Props) {
   const color = CATEGORY_COLORS[metric.category || ''] || '#6b7280';
 
   return (
-    <div className="metric-card">
+    <div className="metric-card" onClick={onClick} title="Click for detailed insights">
       <div className="metric-card-header">
         <h3>{metric.name}</h3>
-        {metric.category && (
-          <span className="category-badge" style={{ backgroundColor: color }}>
-            {metric.category}
-          </span>
-        )}
+        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+          {metric.category && (
+            <span className="category-badge" style={{ backgroundColor: color }}>
+              {metric.category}
+            </span>
+          )}
+        </div>
       </div>
       {metric.description && (
         <p className="metric-description">{metric.description}</p>
@@ -63,8 +66,6 @@ export default function MetricCard({ metric }: Props) {
           </p>
         </div>
       )}
-
-
     </div>
   );
 }

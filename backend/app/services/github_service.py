@@ -92,10 +92,10 @@ async def list_user_repos(token: str) -> list[dict]:
                     break
                 page += 1
             except Exception as e:
-                import traceback
-                traceback.print_exc()
-                print(f"Error fetching repos (Strategy 1) page {page}: {e}")
-                break
+                msg = f"[GitHub] Networking error in Strategy 1: {type(e).__name__}: {str(e)}\n"
+                print(msg)
+                with open("gh_debug.log", "a") as f: f.write(msg)
+                raise  # Re-raise so the API returns an error
 
     # Strategy 2: Fallback to type='all' if we have very experienced issues or few repos
     # Sometimes 'affiliation' misses things if scopes are weird.
@@ -142,10 +142,10 @@ async def list_user_repos(token: str) -> list[dict]:
                         break
                     page += 1
                 except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    print(f"Error fetching repos (Strategy 2) page {page}: {e}")
-                    break
+                    msg = f"[GitHub] Networking error in Strategy 2: {type(e).__name__}: {str(e)}\n"
+                    print(msg)
+                    with open("gh_debug.log", "a") as f: f.write(msg)
+                    raise
                 
     return repos
 
@@ -166,6 +166,10 @@ async def fetch_repo_tree(owner: str, repo: str, token: Optional[str] = None) ->
             f"{GITHUB_API}/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1",
             headers=_headers(token),
         )
+        
+        if resp.status_code == 409:
+            raise ValueError(f"Repository '{owner}/{repo}' is empty or has no commits on the '{default_branch}' branch.")
+            
         resp.raise_for_status()
         tree = resp.json()
 

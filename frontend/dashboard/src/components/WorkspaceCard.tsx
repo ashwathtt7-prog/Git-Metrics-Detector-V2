@@ -33,10 +33,22 @@ export default function WorkspaceCard({ workspace, onDelete, onGenerateMockData,
       )}
 
       <div className="workspace-actions">
-        {canOpenMetabase ? (
-          <a className="btn-metabase" href={workspace.metabase_url} target="_blank" rel="noreferrer">
-            Open in Metabase
-          </a>
+        {workspace.has_mock_data ? (
+          <>
+            <a
+              className="btn-recharts"
+              href={`http://localhost:3002/dashboard/${workspace.id}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open in Recharts
+            </a>
+            {canOpenMetabase && (
+              <a className="btn-metabase" href={workspace.metabase_url} target="_blank" rel="noreferrer">
+                Open in Metabase
+              </a>
+            )}
+          </>
         ) : (
           <button
             className="btn-generate"

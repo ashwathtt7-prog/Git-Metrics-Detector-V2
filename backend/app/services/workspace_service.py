@@ -42,6 +42,7 @@ async def create_workspace_with_metrics(
             suggested_source=m.get("suggested_source"),
             source_table=m.get("source_table"),
             source_platform=m.get("source_platform"),
+            evidence=json.dumps(m.get("evidence")) if m.get("evidence") else None,
             display_order=i,
             created_at=now,
         )

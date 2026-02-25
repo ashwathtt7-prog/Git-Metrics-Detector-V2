@@ -88,13 +88,23 @@ export default function WorkspacePage() {
             {generating ? 'Generating...' : 'Generate mock data'}
           </button>
         </div>
-      ) : metabaseUrl ? (
-        <div style={{ margin: '0.75rem 0 1rem' }}>
-          <a className="btn-metabase" href={metabaseUrl} target="_blank" rel="noreferrer">
-            Open in Metabase
+      ) : (
+        <div style={{ margin: '0.75rem 0 1rem', display: 'flex', gap: '0.75rem' }}>
+          <a
+            className="btn-recharts"
+            href={`http://localhost:3002/dashboard/${workspaceId}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open in Recharts
           </a>
+          {metabaseUrl && (
+            <a className="btn-metabase" href={metabaseUrl} target="_blank" rel="noreferrer">
+              Open in Metabase
+            </a>
+          )}
         </div>
-      ) : null}
+      )}
 
       {workspace.description && (
         <p className="workspace-description">{workspace.description}</p>

@@ -3,7 +3,6 @@ import HomePage from './pages/HomePage';
 import AnalysisPage from './pages/AnalysisPage';
 import WorkspacesPage from './pages/WorkspacesPage';
 import Sidebar from './components/Sidebar';
-import StatusFooter from './components/StatusFooter';
 import './App.css';
 
 function App() {
@@ -17,7 +16,6 @@ function App() {
             <Route path="/analysis/:jobId" element={<AnalysisPage />} />
             <Route path="/workspaces" element={<WorkspacesPage />} />
           </Routes>
-          <StatusFooter />
         </main>
       </div>
     </BrowserRouter>

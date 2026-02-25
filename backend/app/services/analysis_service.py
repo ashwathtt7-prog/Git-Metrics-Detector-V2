@@ -2,8 +2,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import traceback
+import httpx
 from typing import Optional
 from uuid import uuid4
 from time import monotonic
@@ -17,10 +19,13 @@ from . import github_service, llm_service, workspace_service
 from .metabase_service import metabase_service
 from ..config import settings
 
+logger = logging.getLogger(__name__)
+
 
 async def create_job(session: AsyncSession, repo_url: str, github_token: Optional[str]) -> AnalysisJob:
     """Create a new analysis job record."""
     owner, repo = github_service.parse_repo_url(repo_url)
+    
     now = datetime.now(timezone.utc).isoformat()
 
     job = AnalysisJob(
@@ -88,6 +93,7 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
 
             owner, repo = github_service.parse_repo_url(repo_url)
             file_paths = await github_service.fetch_repo_tree(owner, repo, github_token)
+            
             job.total_files = len(file_paths)
             
             # Real Discovery Log!
@@ -120,6 +126,7 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                 kind="Evidence",
             )
 
+            owner, repo = github_service.parse_repo_url(repo_url)
             files = await github_service.fetch_files_batch(
                 owner, repo, file_paths_to_fetch, github_token, on_progress
             )
@@ -388,148 +395,125 @@ async def run_analysis(job_id: str, repo_url: str, github_token: Optional[str]):
                     pass
             await session.commit()
 
-            # --- Stage 5: Reporting & Workspace Creation ---
-            job.current_stage = 5
-            job.progress_message = "Stage 5: Creating workspace environment..."
-            add_log(job, f"Naming workspace: {project_summary.get('project_name', repo)}")
-            await session.commit()
-
+            # --- Workspace Deployment (Finalizing Stage 4) ---
+            add_log(job, "Finalizing workspace registry and initiating deep-diver AI insights...", stage=4)
             workspace_id = await workspace_service.create_workspace_with_metrics(
                 session=session, name=project_summary.get("project_name", f"{owner}/{repo}"), 
                 repo_url=repo_url, description=project_summary.get("description", ""), 
                 metrics_data=metrics, dashboard_layout=None,
             )
-            
             job.workspace_id = workspace_id
-            job.status = "completed"
-            job.completed_at = datetime.now(timezone.utc).isoformat()
-            job.progress_message = "Registry is live. Launching background reporting..."
-            add_log(job, "Workspace created. Connecting visualizers...")
             await session.commit()
 
-            # FINAL PASS: Parallel Reporting & METABASE INTEGRATION
+            # Pass IDs and evidence for insights
             from ..models import Metric as MetricModel
             from sqlalchemy import select as sa_select
             res = await session.execute(sa_select(MetricModel).where(MetricModel.workspace_id == workspace_id))
             db_metric_rows = res.scalars().all()
             metrics_for_reporting = [
                 {
-                    "id": m.id,
-                    "name": m.name,
-                    "description": m.description,
-                    "category": m.category,
-                    "data_type": m.data_type,
-                    "suggested_source": m.suggested_source,
-                    "source_table": m.source_table,
-                    "source_platform": m.source_platform,
+                    "id": m.id, "name": m.name, "description": m.description, "category": m.category,
+                    "data_type": m.data_type, "suggested_source": m.suggested_source,
+                    "source_table": m.source_table, "source_platform": m.source_platform,
+                    "evidence": json.loads(m.evidence) if m.evidence else [],
                 }
                 for m in db_metric_rows
             ]
-            tasks = [
-                llm_service.generate_mock_data(metrics_for_reporting, project_summary.get("project_name", repo)),
-                llm_service.generate_dashboard_plan(metrics_for_reporting, project_summary.get("project_name", repo), workspace_id)
-            ]
-            
+
+            add_log(job, f"Stage 4 Pulse: Synthesizing domain strategies for {len(metrics_for_reporting)} metrics...", stage=4, kind="LLM")
+            # 1. Generate and save insights immediately
             try:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                mock_res, plan_res = results[0], results[1]
-
-                # 1. Mock Data Injection
-                if not isinstance(mock_res, Exception) and mock_res:
-                    mock_data, mock_trace = mock_res
-                    from ..models import MetricEntry
-                    now_utc = datetime.now(timezone.utc)
-                    min_ts = now_utc - timedelta(days=45)
-                    max_ts = now_utc + timedelta(days=2)
-
-                    def _safe_ts(raw: object, *, fallback_days_ago: int) -> str:
-                        if isinstance(raw, str) and raw.strip():
-                            s = raw.strip().replace("Z", "+00:00")
-                            try:
-                                dtp = datetime.fromisoformat(s)
-                                if dtp.tzinfo is None:
-                                    dtp = dtp.replace(tzinfo=timezone.utc)
-                                if min_ts <= dtp <= max_ts:
-                                    return dtp.astimezone(timezone.utc).isoformat()
-                            except Exception:
-                                pass
-                        return (now_utc - timedelta(days=fallback_days_ago)).replace(hour=12, minute=0, second=0, microsecond=0).isoformat()
-
-                    db_metrics_by_id = {m["id"]: m["id"] for m in metrics_for_reporting if m.get("id")}
-                    def _norm(s: str) -> str:
-                        return "".join(ch.lower() for ch in s.strip() if ch.isalnum())
-                    db_metrics_by_name = {_norm(m["name"]): m["id"] for m in metrics_for_reporting if m.get("name") and m.get("id")}
-                    for md in mock_data:
-                        metric_id = md.get("metric_id") or ""
-                        metric_name = md.get("metric_name") or ""
-                        if metric_id and metric_id in db_metrics_by_id:
-                            metric_id = metric_id
-                        else:
-                            metric_id = db_metrics_by_name.get(_norm(metric_name), "")
-                        if not metric_id:
-                            continue
-                        for idx, entry in enumerate(md.get("entries", [])):
-                            session.add(MetricEntry(
-                                id=str(uuid4()), metric_id=metric_id, value=str(entry.get("value", "")),
-                                recorded_at=_safe_ts(entry.get("recorded_at"), fallback_days_ago=(29 - (idx % 30))),
-                            ))
+                logger.info(f"[Analysis] Synthesis phase for metrics: {[m['name'] for m in metrics_for_reporting]}")
+                insights_res = await llm_service.generate_metric_insights(metrics_for_reporting, project_summary)
+                if insights_res and not isinstance(insights_res, Exception):
+                    def _norm_name(s: str) -> str: return "".join(ch.lower() for ch in s.strip() if ch.isalnum())
+                    insights_by_name = {_norm_name(ins["metric_name"]): ins for ins in insights_res if isinstance(ins, dict) and ins.get("metric_name")}
+                    for row in db_metric_rows:
+                        key = _norm_name(row.name)
+                        if key in insights_by_name:
+                            row.insights = json.dumps(insights_by_name[key])
+                    add_log(job, "Metric business/technical insights synthesized successfully.", stage=4, kind="LLM")
                     await session.commit()
-                    add_log(job, "Injected synthetic history for trend visualization.")
-                    if isinstance(mock_trace, dict):
-                        for p in (mock_trace.get("patterns") or [])[:8]:
-                            if isinstance(p, str) and p.strip():
-                                add_log(job, f"Mock pattern: {p.strip()}", stage=5, kind="LLM")
-
-                # 2. METABASE INTEGRATION !!!
-                if not isinstance(plan_res, Exception) and plan_res:
-                    plan_data, plan_trace = plan_res
-                    add_log(job, "Configuring Metabase Open-Source Visualization Suite...")
-                    
-                    # Store plan in workspace for later use
-                    from ..models import Workspace
-                    w = await session.get(Workspace, workspace_id)
-                    if w:
-                        cfg = plan_data if isinstance(plan_data, dict) else {"plan": plan_data}
-                        if isinstance(plan_trace, dict) and plan_trace:
-                            cfg["trace"] = plan_trace
-                        w.dashboard_config = json.dumps(cfg)
-                        await session.commit()
-                        if isinstance(plan_trace, dict):
-                            for d in (plan_trace.get("design_choices") or [])[:10]:
-                                if isinstance(d, str) and d.strip():
-                                    add_log(job, f"Dashboard design: {d.strip()}", stage=5, kind="LLM")
-
-                    # Integration with real Metabase API
-                    try:
-                        db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data/metrics.db"))
-                        mb_db_id = await metabase_service.setup_database(db_path)
-                        if mb_db_id:
-                            mb_url = await metabase_service.create_dashboard(
-                                project_summary.get("project_name", repo),
-                                mb_db_id,
-                                plan_data,
-                                workspace_id=workspace_id,
-                            )
-                            if mb_url:
-                                add_log(job, f"Metabase Dashboard LIVE: {mb_url}")
-                                # Store the actual URL
-                                cfg2 = {"metabase_url": mb_url, "plan": plan_data}
-                                if isinstance(plan_trace, dict) and plan_trace:
-                                    cfg2["trace"] = plan_trace
-                                w.dashboard_config = json.dumps(cfg2)
-                                await session.commit()
-                            else:
-                                add_log(job, "Metabase connection failed. Reaching out locally...")
-                        else:
-                            add_log(job, "Metabase database registration failed.")
-                    except Exception as me:
-                        add_log(job, f"Metabase API Error: {str(me)}")
-
             except Exception as e:
-                add_log(job, f"Background optimization error: {str(e)}")
-            
-            add_log(job, "Analysis complete. Visualization suite ready.")
+                logger.exception("[Analysis] Insight synthesis failed")
+                add_log(job, f"Insight synthesis warning: {str(e)}", stage=4)
+
+            # 2. Proceed with dashboard planning and mock data
+            add_log(job, "Initiating strategic visualization architecture...", stage=4)
+            plan_res, mock_res = await asyncio.gather(
+                llm_service.generate_dashboard_plan(metrics_for_reporting, project_summary.get("project_name", repo), workspace_id),
+                llm_service.generate_mock_data(metrics_for_reporting, project_summary.get("project_name", repo)),
+                return_exceptions=True
+            )
+
+            # --- Stage 5: Deployment ---
+            job.current_stage = 5
+            job.progress_message = "Stage 5: Deploying Strategic Visualization Suite..."
+            add_log(job, "Launching command center telemetry...", stage=5)
             await session.commit()
+
+            # 1. Mock Data Injection
+            if not isinstance(mock_res, Exception) and mock_res:
+                mock_data, mock_trace = mock_res
+                from ..models import MetricEntry
+                now_utc = datetime.now(timezone.utc)
+                
+                def _safe_ts(raw: object, *, idx: int) -> str:
+                    # Deterministic spread for fallback
+                    return (now_utc - timedelta(days=(29 - (idx % 30)))).replace(hour=12, minute=0, second=0, microsecond=0).isoformat()
+
+                db_metrics_by_name = {"".join(ch.lower() for ch in m["name"] if ch.isalnum()): m["id"] for m in metrics_for_reporting}
+                
+                for md in mock_data:
+                    metric_name = md.get("metric_name") or ""
+                    m_id = db_metrics_by_name.get("".join(ch.lower() for ch in metric_name if ch.isalnum()))
+                    if not m_id: continue
+                    for idx, entry in enumerate(md.get("entries", [])):
+                        session.add(MetricEntry(
+                            id=str(uuid4()), metric_id=m_id, value=str(entry.get("value", "")),
+                            recorded_at=_safe_ts(entry.get("recorded_at"), idx=idx),
+                        ))
+                await session.commit()
+                add_log(job, "Injected synthetic telemetry for trend visualization.", stage=5)
+
+            # 2. Metabase Deployment
+            if not isinstance(plan_res, Exception) and plan_res:
+                plan_data, plan_trace = plan_res
+                try:
+                    db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data/metrics.db"))
+                    mb_db_id = await metabase_service.setup_database(db_path)
+                    if mb_db_id:
+                        mb_url = await metabase_service.create_dashboard(project_summary.get("project_name", repo), mb_db_id, plan_data, workspace_id=workspace_id)
+                        if mb_url:
+                            final_url = mb_url
+                                
+                                # Indexing grace period
+                                try:
+                                    add_log(job, "Polishing visual telemetry layer...", stage=5)
+                                    await asyncio.sleep(2.0)
+                                    async with httpx.AsyncClient() as client:
+                                        v_resp = await client.get(final_url, timeout=5.0)
+                                        if v_resp.status_code == 200 and "not found" not in v_resp.text.lower():
+                                            add_log(job, "Strategic visualization link verified and active.", stage=5)
+                                        else:
+                                            add_log(job, "Visualization suite warming up...", stage=5)
+                                except Exception: pass
+                            
+                            add_log(job, f"SYNERGETIC TELEMETRY LIVE: {final_url}", stage=5)
+                            from ..models import Workspace
+                            ws = await session.get(Workspace, workspace_id)
+                            if ws:
+                                ws.dashboard_config = json.dumps({"metabase_url": final_url, "plan": plan_data, "trace": plan_trace})
+                                await session.commit()
+                except Exception as me:
+                    logger.error(f"[Analysis] Metabase deployment failed: {me}")
+                    add_log(job, f"Telemetry deployment warning: {str(me)}", stage=5)
+
+            add_log(job, "Strategic Analytics deployment complete. Intelligence suite online.", stage=5)
+            job.status = "completed"
+            job.completed_at = datetime.now(timezone.utc).isoformat()
+            await session.commit()
+
 
         except Exception as e:
             try:

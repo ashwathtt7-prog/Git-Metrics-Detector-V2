@@ -47,6 +47,7 @@ class MetricResponse(BaseModel):
     source_platform: Optional[str] = None
     display_order: int = 0
     created_at: str
+    insights: Optional[str] = None
     entries: List[MetricEntryResponse] = []
 
 
